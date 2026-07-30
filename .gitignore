@@ -1,0 +1,22 @@
+# Environment & Secrets
+.env
+*.pem
+
+# Python & Virtualenv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Data & Vector Storage (Local)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+chroma_db/
+qdrant_db/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
