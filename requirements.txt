@@ -1,0 +1,21 @@
+# === CRAWLER ===
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.2.2
+html2text==2024.2.26
+tqdm==4.66.4
+python-dotenv==1.0.1
+
+# === DATA PROCESSING ===
+pandas==2.2.2
+jsonlines==4.0.0
+
+# === RAG PIPELINE (future) ===
+langchain==0.2.5
+langchain-community==0.2.5
+chromadb==0.5.3
+sentence-transformers==3.0.1
+
+# === API ===
+fastapi==0.111.0
+uvicorn==0.30.1
