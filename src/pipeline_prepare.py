@@ -6,12 +6,13 @@ import requests
 
 
 _HERE = Path(__file__).resolve().parent
-_ROOT = _HERE.parents[1]
+_ROOT = _HERE.parent if _HERE.name == "src" else _HERE.parents[1]
 
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.crawler import clean_dataset, tvpl_crawler
+from src import chunking
 
 
 RAW_DIR = _ROOT / "data" / "raw"
@@ -55,9 +56,14 @@ def clean_documents():
     print("\n[OK] Xong!")
 
 
+def build_chunking_outputs():
+    chunking.build_all(PROCESSED_DIR, _ROOT / "data" / "structured", _ROOT / "data" / "chunks")
+
+
 def main():
     crawl_documents()
     clean_documents()
+    build_chunking_outputs()
 
 
 if __name__ == "__main__":

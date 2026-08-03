@@ -18,7 +18,7 @@ def clean_html(raw_html: str) -> str:
 
     # Lấy text từng đoạn <p> — giữ nguyên cấu trúc điều/khoản
     paragraphs = []
-    for tag in soup.find_all(["p", "td"]):
+    for tag in soup.find_all("p"):
         text = tag.get_text(separator=" ")
         text = _normalize(text)
         if text:
@@ -47,6 +47,11 @@ def _normalize(text: str) -> str:
     text = text.replace("\xa0", " ")        # &nbsp;
     text = text.replace("\u200b", "")       # zero-width space
     text = re.sub(r" {2,}", " ", text)      # nhiều dấu cách → 1
+    text = re.sub(r"^(\d+)\s+\.", r"\1.", text)
+    text = re.sub(r"^([a-zđ])\s+\)", r"\1)", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bĐi\s+ều\b", "Điều", text)
+    text = re.sub(r"\bCh\s+ương\b", "Chương", text)
+    text = re.sub(r"\bM\s+ục\b", "Mục", text)
     return text.strip()
 
 
@@ -79,5 +84,3 @@ def clean_file(input_path: Path, output_path: Path):
 
     print(f"  [✔] {output_path}")
     print(f"  [✔] {txt_path}")
-
-

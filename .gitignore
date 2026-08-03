@@ -10,8 +10,11 @@ venv/
 
 # Data & Vector Storage (Local)
 data/raw/*
+data/chunks/*
 data/processed/*
+data/structured/*
 !data/raw/.gitkeep
+!data/chunks/.gitkeep
 !data/processed/.gitkeep
 chroma_db/
 qdrant_db/
