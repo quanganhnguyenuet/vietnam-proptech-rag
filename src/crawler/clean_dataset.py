@@ -81,12 +81,3 @@ def clean_file(input_path: Path, output_path: Path):
     print(f"  [✔] {txt_path}")
 
 
-if __name__ == "__main__":
-    raw_files = list(RAW_DIR.glob("*.json"))
-    if not raw_files:
-        print(f"[!] Không có file nào trong {RAW_DIR}")
-    else:
-        for raw_file in raw_files:
-            out_file = PROCESSED_DIR / raw_file.name
-            clean_file(raw_file, out_file)
-        print("\n[✔] Xong!")

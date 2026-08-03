@@ -3,7 +3,11 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
+from pathlib import Path
 
+
+_HERE = Path(__file__).resolve().parent
+_ROOT = _HERE.parents[1]
 
 SEED_DOCUMENTS = [
     {
@@ -43,7 +47,7 @@ SEED_DOCUMENTS = [
     }
 ]
 
-RAW_DATA_DIR = "data/raw"
+RAW_DATA_DIR = _ROOT / "data" / "raw"
 
 # Headers giả lập browser thật — thuvienphapluat trả 403 nếu thiếu Accept, Referer
 # Không set Accept-Encoding: để requests tự quản lý (gzip/deflate) và tự decompress
@@ -101,7 +105,7 @@ def crawl_thuvienphapluat(doc_info: dict, session: requests.Session):
             "raw_html": raw_html,
         }
 
-        output_file = os.path.join(RAW_DATA_DIR, f"{doc_info['id']}.json")
+        output_file = RAW_DATA_DIR / f"{doc_info['id']}.json"
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -112,26 +116,3 @@ def crawl_thuvienphapluat(doc_info: dict, session: requests.Session):
         print(f"[✘] Error khi cào {doc_info['id']}: {e}")
         return False
 
-
-if __name__ == "__main__":
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    print("[*] Warm-up: lấy cookies từ trang chủ...")
-    try:
-        session.get("https://thuvienphapluat.vn/", timeout=10)
-        print("[✔] Cookies OK")
-    except Exception as e:
-        print(f"[!] Warm-up thất bại: {e}")
-
-    time.sleep(2)
-
-    # In ra tổng số văn bản cần cào
-    print(f"[*] Bắt đầu cào tổng cộng {len(SEED_DOCUMENTS)} văn bản...\n" + "="*50)
-
-    for idx, doc in enumerate(SEED_DOCUMENTS, 1):
-        print(f"\n[Progress {idx}/{len(SEED_DOCUMENTS)}]")
-        crawl_thuvienphapluat(doc, session)
-        
-        # Tăng thời gian nghỉ lên 3-4 giây giữa các request để tránh bị anti-bot chặn
-        time.sleep(3)
