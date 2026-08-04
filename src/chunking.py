@@ -6,8 +6,12 @@ from pathlib import Path
 ARTICLE_RE = re.compile(r"(?m)^##\s+Điều\s+(\d+)\.\s*(.+?)\s*$")
 CHAPTER_RE = re.compile(r"(?m)^#\s+Chương\s+([0-9IVXLCDM]+)\s*$", re.IGNORECASE)
 CLAUSE_RE = re.compile(r"(?m)^(\d+)\s*\.\s+")
+POINT_RE = re.compile(r"(?m)^\s*(?:[-–—]\s*)?([a-zđ])\)\s+")
 
 MAX_CHARS = 2200
+SHORT_TEXT_CHARS = 30
+POINT_SPLIT_MIN_CHARS = 1200
+POINT_SPLIT_MIN_POINTS = 3
 
 
 def is_inside_quote(text: str, pos: int) -> bool:
@@ -116,26 +120,133 @@ def split_long_text(text: str, max_chars: int = MAX_CHARS) -> list[str]:
     return chunks
 
 
-def make_chunk_text(unit: dict, body: str) -> str:
-    header = f"{unit['doc_title']} | Điều {unit['article_no']}. {unit['article_title']}"
+def make_context_header(unit: dict) -> str:
+    lines = [
+        unit["doc_title"],
+        f"Số hiệu: {unit['doc_number']}",
+    ]
+    if unit.get("chapter"):
+        lines.append(f"Chương {unit['chapter']}")
+    lines.append(f"Điều {unit['article_no']}. {unit['article_title']}")
     if unit.get("clause_no"):
-        header += f" | Khoản {unit['clause_no']}"
-    return f"{header}\n\n{body}".strip()
+        lines.append(f"Khoản {unit['clause_no']}")
+    return "\n".join(lines)
+
+
+def make_chunk_text(unit: dict, body: str) -> str:
+    return f"{make_context_header(unit)}\n\n{body}".strip()
+
+
+def point_label_to_id(label: str) -> str:
+    return label.lower().replace("đ", "d")
+
+
+def format_point_range(labels: list[str]) -> str:
+    if len(labels) == 1:
+        return labels[0]
+    return f"{labels[0]}-{labels[-1]}"
+
+
+def split_by_points(text: str, max_chars: int = MAX_CHARS) -> list[dict]:
+    matches = list(POINT_RE.finditer(text))
+    if len(matches) < POINT_SPLIT_MIN_POINTS:
+        return []
+
+    intro = text[:matches[0].start()].strip()
+    point_parts = []
+    for idx, match in enumerate(matches):
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        label = match.group(1).lower()
+        point_parts.append({"labels": [label], "text": text[match.start():end].strip()})
+
+    groups = []
+    current_labels = []
+    current_parts = []
+    current_len = len(intro)
+
+    for part in point_parts:
+        part_len = len(part["text"]) + 1
+        if current_parts and current_len + part_len > max_chars:
+            body_parts = []
+            if intro:
+                body_parts.append(intro)
+            body_parts.extend(current_parts)
+            groups.append({"labels": current_labels, "text": "\n".join(body_parts).strip()})
+            current_labels = []
+            current_parts = []
+            current_len = len(intro)
+
+        current_labels.extend(part["labels"])
+        current_parts.append(part["text"])
+        current_len += part_len
+
+    if current_parts:
+        body_parts = []
+        if intro:
+            body_parts.append(intro)
+        body_parts.extend(current_parts)
+        groups.append({"labels": current_labels, "text": "\n".join(body_parts).strip()})
+
+    return groups
+
+
+def chunk_unit(unit: dict) -> list[dict]:
+    text = unit["text"]
+    point_count = len(POINT_RE.findall(text))
+    should_split_points = len(text) > POINT_SPLIT_MIN_CHARS and point_count >= POINT_SPLIT_MIN_POINTS
+
+    if should_split_points:
+        point_groups = split_by_points(text)
+        if point_groups:
+            chunks = []
+            for idx, group in enumerate(point_groups, 1):
+                point_range = format_point_range(group["labels"])
+                point_id = "_".join(point_label_to_id(label) for label in group["labels"])
+                citation = f"{unit['citation']} điểm {point_range}"
+                metadata = {
+                    **{k: v for k, v in unit.items() if k != "text"},
+                    "parent_unit_id": unit["unit_id"],
+                    "level": "point_group" if len(group["labels"]) > 1 else "point",
+                    "point_labels": group["labels"],
+                    "point_range": point_range,
+                    "citation": citation,
+                    "split_reason": "long_clause_with_points",
+                }
+                chunks.append(
+                    {
+                        "chunk_id": f"{unit['unit_id']}__diem_{point_id}",
+                        "text": group["text"],
+                        "embedding_text": make_chunk_text(metadata, group["text"]),
+                        "metadata": metadata,
+                    }
+                )
+            return chunks
+
+    parts = split_long_text(text)
+    chunks = []
+    for idx, part in enumerate(parts, 1):
+        chunk_id = unit["unit_id"] if len(parts) == 1 else f"{unit['unit_id']}__part_{idx}"
+        metadata = {k: v for k, v in unit.items() if k != "text"}
+        if len(text.strip()) < SHORT_TEXT_CHARS:
+            metadata["context_enrichment"] = "short_text_parent_context"
+        elif len(parts) > 1:
+            metadata["split_reason"] = "long_text_by_paragraph"
+
+        chunks.append(
+            {
+                "chunk_id": chunk_id,
+                "text": part,
+                "embedding_text": make_chunk_text(unit, part),
+                "metadata": metadata,
+            }
+        )
+    return chunks
 
 
 def build_chunks(units: list[dict]) -> list[dict]:
     chunks = []
     for unit in units:
-        parts = split_long_text(unit["text"])
-        for idx, part in enumerate(parts, 1):
-            chunk_id = unit["unit_id"] if len(parts) == 1 else f"{unit['unit_id']}__part_{idx}"
-            chunks.append(
-                {
-                    "chunk_id": chunk_id,
-                    "text": make_chunk_text(unit, part),
-                    "metadata": {k: v for k, v in unit.items() if k != "text"},
-                }
-            )
+        chunks.extend(chunk_unit(unit))
     return chunks
 
 
@@ -168,6 +279,4 @@ def build_all(processed_dir: Path, structured_dir: Path, chunks_dir: Path) -> No
         print(f"[OK] Built chunks: {chunks_path}")
 
 
-if __name__ == "__main__":
-    root = Path(__file__).resolve().parents[1]
-    build_all(root / "data" / "processed", root / "data" / "structured", root / "data" / "chunks")
+

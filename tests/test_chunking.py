@@ -6,6 +6,7 @@ from statistics import mean, median
 
 ROOT = Path(__file__).resolve().parents[1]
 PATH = ROOT / "data" / "structured" / "31_2024_QH15_legal_units.jsonl"
+CHUNKS_PATH = ROOT / "data" / "chunks" / "31_2024_QH15_chunks.jsonl"
 
 rows = []
 with PATH.open("r", encoding="utf-8") as f:
@@ -141,4 +142,71 @@ for e in errors[:50]:
 
 print("\n--- WARNINGS ---")
 for w in warnings[:50]:
+    print(w)
+
+
+chunk_rows = []
+with CHUNKS_PATH.open("r", encoding="utf-8") as f:
+    for line_no, line in enumerate(f, 1):
+        try:
+            obj = json.loads(line)
+            obj["_line_no"] = line_no
+            chunk_rows.append(obj)
+        except Exception as e:
+            print(f"[CHUNK JSON ERROR] line={line_no}: {e}")
+
+chunk_errors = []
+chunk_warnings = []
+
+chunk_id_counter = Counter(r.get("chunk_id") for r in chunk_rows)
+for chunk_id, count in chunk_id_counter.items():
+    if count > 1:
+        chunk_errors.append(f"Duplicate chunk_id: {chunk_id} appears {count} times")
+
+for r in chunk_rows:
+    metadata = r.get("metadata", {})
+    text = r.get("text", "")
+    embedding_text = r.get("embedding_text", "")
+
+    if not r.get("chunk_id"):
+        chunk_errors.append(f"Missing chunk_id: line {r.get('_line_no')}")
+    if not text.strip():
+        chunk_errors.append(f"Empty chunk text: {r.get('chunk_id')}")
+    if not embedding_text.strip():
+        chunk_errors.append(f"Missing embedding_text: {r.get('chunk_id')}")
+    if not metadata.get("unit_id"):
+        chunk_errors.append(f"Missing metadata.unit_id: {r.get('chunk_id')}")
+    if not metadata.get("citation"):
+        chunk_errors.append(f"Missing metadata.citation: {r.get('chunk_id')}")
+    if len(text) > 2200:
+        chunk_warnings.append(f"Very long chunk text: {r.get('chunk_id')} len={len(text)}")
+    if len(text) < 30 and metadata.get("context_enrichment") != "short_text_parent_context":
+        chunk_warnings.append(f"Short chunk without parent context marker: {r.get('chunk_id')} len={len(text)}")
+
+chunk_lengths = [len(r.get("text", "")) for r in chunk_rows]
+embedding_lengths = [len(r.get("embedding_text", "")) for r in chunk_rows]
+point_split_count = sum(
+    1 for r in chunk_rows
+    if r.get("metadata", {}).get("split_reason") == "long_clause_with_points"
+)
+short_enriched_count = sum(
+    1 for r in chunk_rows
+    if r.get("metadata", {}).get("context_enrichment") == "short_text_parent_context"
+)
+
+print("\n===== VECTOR CHUNK REPORT =====")
+print(f"Total chunks: {len(chunk_rows)}")
+print(f"Text length min/avg/median/max: {min(chunk_lengths)} / {mean(chunk_lengths):.1f} / {median(chunk_lengths)} / {max(chunk_lengths)}")
+print(f"Embedding length min/avg/median/max: {min(embedding_lengths)} / {mean(embedding_lengths):.1f} / {median(embedding_lengths)} / {max(embedding_lengths)}")
+print(f"Point-split chunks: {point_split_count}")
+print(f"Short-context enriched chunks: {short_enriched_count}")
+print(f"Errors: {len(chunk_errors)}")
+print(f"Warnings: {len(chunk_warnings)}")
+
+print("\n--- CHUNK ERRORS ---")
+for e in chunk_errors[:50]:
+    print(e)
+
+print("\n--- CHUNK WARNINGS ---")
+for w in chunk_warnings[:50]:
     print(w)
