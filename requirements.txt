@@ -5,6 +5,7 @@ lxml==5.2.2
 html2text==2024.2.26
 tqdm==4.66.4
 python-dotenv==1.0.1
+pypdf==4.2.0
 
 # === DATA PROCESSING ===
 pandas==2.2.2

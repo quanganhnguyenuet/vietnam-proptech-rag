@@ -1,212 +1,90 @@
-import json
-import re
-from collections import Counter, defaultdict
+import tempfile
+import unittest
 from pathlib import Path
-from statistics import mean, median
 
-ROOT = Path(__file__).resolve().parents[1]
-PATH = ROOT / "data" / "structured" / "31_2024_QH15_legal_units.jsonl"
-CHUNKS_PATH = ROOT / "data" / "chunks" / "31_2024_QH15_chunks.jsonl"
+from src import chunking
+from src.quality_gate import check_processed_doc
 
-rows = []
-with PATH.open("r", encoding="utf-8") as f:
-    for line_no, line in enumerate(f, 1):
-        try:
-            obj = json.loads(line)
-            obj["_line_no"] = line_no
-            rows.append(obj)
-        except Exception as e:
-            print(f"[JSON ERROR] line={line_no}: {e}")
 
-required_fields = [
-    "unit_id", "doc_id", "doc_title", "doc_number",
-    "article_no", "article_title", "citation",
-    "level", "text", "source_url"
-]
+def sample_doc(**overrides):
+    doc = {
+        "doc_id": "demo_doc",
+        "title": "Lu\u1eadt Demo",
+        "doc_number": "01/2026/QH15",
+        "doc_type": "luat",
+        "source_url": "https://vbpl.vn/demo",
+        "expected_article_count": 2,
+        "source_provider": "tvpl",
+        "source_policy": "tvpl_primary_with_attachment_preference",
+        "source_format": "html",
+        "downloaded_files": [],
+        "clean_text": """
+# Ch\u01b0\u01a1ng I
 
-errors = []
-warnings = []
+## \u0110i\u1ec1u 1. Ph\u1ea1m vi
 
-# Schema check
-for r in rows:
-    for field in required_fields:
-        if field not in r or r[field] in [None, ""]:
-            errors.append(f"Missing field {field}: line {r.get('_line_no')}")
+1. Quy \u0111\u1ecbnh th\u1ee9 nh\u1ea5t.
+2. Quy \u0111\u1ecbnh th\u1ee9 hai.
 
-# Duplicate check
-for field in ["unit_id", "citation"]:
-    counter = Counter(r.get(field) for r in rows)
-    duplicates = [(k, v) for k, v in counter.items() if v > 1]
-    for k, v in duplicates:
-        errors.append(f"Duplicate {field}: {k} appears {v} times")
+## \u0110i\u1ec1u 2. \u0110\u1ed1i t\u01b0\u1ee3ng
 
-# Article coverage
-article_numbers = sorted(set(r["article_no"] for r in rows if "article_no" in r))
-if article_numbers:
-    missing_articles = [
-        i for i in range(min(article_numbers), max(article_numbers) + 1)
-        if i not in article_numbers
-    ]
-    for a in missing_articles:
-        errors.append(f"Missing article: Điều {a}")
+1. \u00c1p d\u1ee5ng cho t\u1ed5 ch\u1ee9c.
 
-# Clause sequence check
-by_article = defaultdict(list)
-for r in rows:
-    by_article[r["article_no"]].append(r)
+PH\u1ee4 L\u1ee4C
 
-for article_no, units in by_article.items():
-    clause_nos = sorted(
-        r.get("clause_no")
-        for r in units
-        if r.get("clause_no") is not None
-    )
-    if clause_nos:
-        if min(clause_nos) != 1:
-            warnings.append(
-                f"Article {article_no} clause sequence starts at {min(clause_nos)}"
-            )
+## \u0110i\u1ec1u 1. \u0110i\u1ec1u trong m\u1eabu h\u1ee3p \u0111\u1ed3ng
 
-        expected = set(range(min(clause_nos), max(clause_nos) + 1))
-        missing = sorted(expected - set(clause_nos))
-        if missing:
-            warnings.append(
-                f"Article {article_no} missing clause numbers: {missing}"
-            )
+1. \u0110i\u1ec1u n\u00e0y kh\u00f4ng \u0111\u01b0\u1ee3c t\u00ednh l\u00e0 \u0111i\u1ec1u lu\u1eadt ch\u00ednh.
+""".strip(),
+    }
+    doc.update(overrides)
+    return doc
 
-# Text length check
-lengths = [len(r.get("text", "")) for r in rows]
-for r in rows:
-    text = r.get("text", "")
 
-    if len(text.strip()) == 0:
-        errors.append(f"Empty text: {r['unit_id']}")
+class ChunkingTests(unittest.TestCase):
+    def test_appendix_articles_do_not_pollute_main_units(self):
+        units = chunking.build_legal_units(sample_doc())
 
-    if len(text) < 30:
-        warnings.append(f"Very short unit: {r['unit_id']} len={len(text)}")
-
-    if len(text) > 2200:
-        warnings.append(f"Very long unit: {r['unit_id']} len={len(text)}")
-
-# Boundary check
-for r in rows:
-    text = r.get("text", "")
-    article_no = r.get("article_no")
-    clause_no = r.get("clause_no")
-
-    # If another article heading appears inside text, likely boundary error
-    other_article_heading = re.search(r"(?m)^Điều\s+(\d+)\.", text)
-    if other_article_heading:
-        found_article = int(other_article_heading.group(1))
-        if found_article != article_no:
-            errors.append(
-                f"Boundary error: {r['unit_id']} contains Điều {found_article}"
-            )
-
-    # Clause marker consistency
-    if clause_no is not None:
-        first_clause_marker = re.search(r"(?m)^\s*(\d+)\.\s+", text)
-        if first_clause_marker:
-            found_clause = int(first_clause_marker.group(1))
-            if found_clause != clause_no:
-                errors.append(
-                    f"Clause mismatch: {r['unit_id']} metadata={clause_no}, text={found_clause}"
-                )
-
-# Point marker check
-point_re = re.compile(r"(?m)^\s*(?:[-–—]\s*)?([a-zđ])\)\s+")
-point_units = []
-for r in rows:
-    points = point_re.findall(r.get("text", ""))
-    if points:
-        point_units.append((r, points))
-
-for r, points in point_units:
-    if len(points) >= 5 and len(r.get("text", "")) > 1200:
-        warnings.append(
-            f"Long clause with many points should be split: {r['unit_id']} "
-            f"points={len(points)} len={len(r['text'])}"
+        main_articles = sorted(
+            {unit["article_no"] for unit in units if unit.get("section_type") == "main"}
         )
+        appendix_units = [unit for unit in units if unit.get("section_type") == "appendix"]
 
-print("===== CHUNK QUALITY REPORT =====")
-print(f"Total units: {len(rows)}")
-print(f"Articles found: {len(article_numbers)}")
-print(f"Length min/avg/median/max: {min(lengths)} / {mean(lengths):.1f} / {median(lengths)} / {max(lengths)}")
-print(f"Units with point markers: {len(point_units)}")
-print(f"Errors: {len(errors)}")
-print(f"Warnings: {len(warnings)}")
+        self.assertEqual(main_articles, [1, 2])
+        self.assertEqual(len(appendix_units), 1)
+        self.assertEqual(appendix_units[0]["unit_id"], "demo_doc__appendix__appendix_1")
+        self.assertEqual(len({unit["unit_id"] for unit in units}), len(units))
 
-print("\n--- ERRORS ---")
-for e in errors[:50]:
-    print(e)
+    def test_chunk_ids_include_section_type_and_source_metadata(self):
+        units = chunking.build_legal_units(sample_doc())
+        chunks = chunking.build_chunks(units)
 
-print("\n--- WARNINGS ---")
-for w in warnings[:50]:
-    print(w)
+        main_chunk = next(chunk for chunk in chunks if chunk["metadata"]["section_type"] == "main")
+
+        self.assertTrue(main_chunk["chunk_id"].startswith("demo_doc__main__article_1__clause_1"))
+        self.assertEqual(main_chunk["metadata"]["source_provider"], "tvpl")
+        self.assertEqual(main_chunk["metadata"]["source_format"], "html")
+
+    def test_point_ids_keep_d_and_dd_distinct(self):
+        self.assertEqual(chunking.point_label_to_id("d"), "d")
+        self.assertEqual(chunking.point_label_to_id("\u0111"), "dd")
+
+    def test_quality_gate_detects_article_count_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            doc = sample_doc(expected_article_count=3)
+
+            errors = check_processed_doc(Path(temp_dir) / "demo.json", doc)
+
+        self.assertIn("article count mismatch", "\n".join(errors))
+
+    def test_quality_gate_rejects_unverified_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            doc = sample_doc(effective_date="01/01/2026")
+
+            errors = check_processed_doc(Path(temp_dir) / "demo.json", doc)
+
+        self.assertIn("unverified metadata field must move to registry: effective_date", "\n".join(errors))
 
 
-chunk_rows = []
-with CHUNKS_PATH.open("r", encoding="utf-8") as f:
-    for line_no, line in enumerate(f, 1):
-        try:
-            obj = json.loads(line)
-            obj["_line_no"] = line_no
-            chunk_rows.append(obj)
-        except Exception as e:
-            print(f"[CHUNK JSON ERROR] line={line_no}: {e}")
-
-chunk_errors = []
-chunk_warnings = []
-
-chunk_id_counter = Counter(r.get("chunk_id") for r in chunk_rows)
-for chunk_id, count in chunk_id_counter.items():
-    if count > 1:
-        chunk_errors.append(f"Duplicate chunk_id: {chunk_id} appears {count} times")
-
-for r in chunk_rows:
-    metadata = r.get("metadata", {})
-    text = r.get("text", "")
-    embedding_text = r.get("embedding_text", "")
-
-    if not r.get("chunk_id"):
-        chunk_errors.append(f"Missing chunk_id: line {r.get('_line_no')}")
-    if not text.strip():
-        chunk_errors.append(f"Empty chunk text: {r.get('chunk_id')}")
-    if not embedding_text.strip():
-        chunk_errors.append(f"Missing embedding_text: {r.get('chunk_id')}")
-    if not metadata.get("unit_id"):
-        chunk_errors.append(f"Missing metadata.unit_id: {r.get('chunk_id')}")
-    if not metadata.get("citation"):
-        chunk_errors.append(f"Missing metadata.citation: {r.get('chunk_id')}")
-    if len(text) > 2200:
-        chunk_warnings.append(f"Very long chunk text: {r.get('chunk_id')} len={len(text)}")
-    if len(text) < 30 and metadata.get("context_enrichment") != "short_text_parent_context":
-        chunk_warnings.append(f"Short chunk without parent context marker: {r.get('chunk_id')} len={len(text)}")
-
-chunk_lengths = [len(r.get("text", "")) for r in chunk_rows]
-embedding_lengths = [len(r.get("embedding_text", "")) for r in chunk_rows]
-point_split_count = sum(
-    1 for r in chunk_rows
-    if r.get("metadata", {}).get("split_reason") == "long_clause_with_points"
-)
-short_enriched_count = sum(
-    1 for r in chunk_rows
-    if r.get("metadata", {}).get("context_enrichment") == "short_text_parent_context"
-)
-
-print("\n===== VECTOR CHUNK REPORT =====")
-print(f"Total chunks: {len(chunk_rows)}")
-print(f"Text length min/avg/median/max: {min(chunk_lengths)} / {mean(chunk_lengths):.1f} / {median(chunk_lengths)} / {max(chunk_lengths)}")
-print(f"Embedding length min/avg/median/max: {min(embedding_lengths)} / {mean(embedding_lengths):.1f} / {median(embedding_lengths)} / {max(embedding_lengths)}")
-print(f"Point-split chunks: {point_split_count}")
-print(f"Short-context enriched chunks: {short_enriched_count}")
-print(f"Errors: {len(chunk_errors)}")
-print(f"Warnings: {len(chunk_warnings)}")
-
-print("\n--- CHUNK ERRORS ---")
-for e in chunk_errors[:50]:
-    print(e)
-
-print("\n--- CHUNK WARNINGS ---")
-for w in chunk_warnings[:50]:
-    print(w)
+if __name__ == "__main__":
+    unittest.main()

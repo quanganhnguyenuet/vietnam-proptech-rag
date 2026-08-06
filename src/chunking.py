@@ -2,16 +2,32 @@ import json
 import re
 from pathlib import Path
 
+from src.crawler.clean_dataset import split_main_and_appendices
 
-ARTICLE_RE = re.compile(r"(?m)^##\s+Điều\s+(\d+)\.\s*(.+?)\s*$")
-CHAPTER_RE = re.compile(r"(?m)^#\s+Chương\s+([0-9IVXLCDM]+)\s*$", re.IGNORECASE)
+
+ARTICLE_RE = re.compile(
+    r"(?m)^\s*(?:#{1,6}\s*)?(?:[·oº\-\s]*)?Điều\s+(\d+[a-zA-Z]?)\s*[.:]\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
+CHAPTER_RE = re.compile(
+    r"(?m)^\s*(?:#{1,6}\s*)?(?:[·oº\-\s]*)?Chương\s+([0-9IVXLCDM]+)\b.*$",
+    re.IGNORECASE,
+)
 CLAUSE_RE = re.compile(r"(?m)^(\d+)\s*\.\s+")
-POINT_RE = re.compile(r"(?m)^\s*(?:[-–—]\s*)?([a-zđ])\)\s+")
+POINT_RE = re.compile(r"(?m)^\s*(?:[-–—]\s*)?([a-zđ])\)\s+", re.IGNORECASE)
 
 MAX_CHARS = 2200
 SHORT_TEXT_CHARS = 30
 POINT_SPLIT_MIN_CHARS = 1200
 POINT_SPLIT_MIN_POINTS = 3
+
+DOC_METADATA_FIELDS = [
+    "expected_article_count",
+    "source_provider",
+    "source_policy",
+    "source_format",
+    "downloaded_files",
+]
 
 
 def is_inside_quote(text: str, pos: int) -> bool:
@@ -26,6 +42,27 @@ def current_chapter(text_before_article: str):
     return matches[-1].group(1)
 
 
+def doc_metadata(doc: dict) -> dict:
+    return {field: doc.get(field) for field in DOC_METADATA_FIELDS if field in doc}
+
+
+def make_unit_id(
+    doc_id: str,
+    section_type: str,
+    article_no=None,
+    clause_no=None,
+    appendix_id=None,
+) -> str:
+    parts = [doc_id, section_type]
+    if section_type == "appendix":
+        parts.append(appendix_id or "appendix")
+    if article_no is not None:
+        parts.append(f"article_{article_no}")
+    if clause_no is not None:
+        parts.append(f"clause_{clause_no}")
+    return "__".join(str(part) for part in parts)
+
+
 def parse_articles(doc: dict, text: str) -> list[dict]:
     matches = list(ARTICLE_RE.finditer(text))
     articles = []
@@ -33,20 +70,23 @@ def parse_articles(doc: dict, text: str) -> list[dict]:
     for idx, match in enumerate(matches):
         start = match.start()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        article_no = int(match.group(1))
+        article_no = match.group(1)
         article_title = match.group(2).strip()
         body = text[match.end():end].strip()
 
         articles.append(
             {
-                "unit_id": f"{doc['doc_id']}__dieu_{article_no}",
+                **doc_metadata(doc),
+                "unit_id": make_unit_id(doc["doc_id"], "main", article_no=article_no),
                 "doc_id": doc["doc_id"],
                 "doc_title": doc["title"],
                 "doc_number": doc["doc_number"],
                 "doc_type": doc["doc_type"],
                 "source_url": doc["source_url"],
+                "section_type": "main",
                 "chapter": current_chapter(text[:start]),
-                "article_no": article_no,
+                "article_no": int(article_no) if article_no.isdigit() else article_no,
+                "article_label": article_no,
                 "article_title": article_title,
                 "text": body,
                 "citation": f"{doc['title']}, Điều {article_no}",
@@ -64,7 +104,7 @@ def parse_clauses(article: dict) -> list[dict]:
         return [{**article, "level": "article"}]
 
     first_clause_no = int(matches[0].group(1))
-    intro = body[:matches[0].start()].strip()
+    intro = body[: matches[0].start()].strip()
     if first_clause_no != 1 and intro:
         return [{**article, "level": "article", "parse_warning": "first_clause_is_not_1"}]
 
@@ -81,7 +121,12 @@ def parse_clauses(article: dict) -> list[dict]:
         clauses.append(
             {
                 **{k: v for k, v in article.items() if k != "text"},
-                "unit_id": f"{article['unit_id']}__khoan_{clause_no}",
+                "unit_id": make_unit_id(
+                    article["doc_id"],
+                    "main",
+                    article_no=article["article_label"],
+                    clause_no=clause_no,
+                ),
                 "level": "clause",
                 "clause_no": clause_no,
                 "text": clause_text,
@@ -92,11 +137,46 @@ def parse_clauses(article: dict) -> list[dict]:
     return clauses
 
 
+def appendix_units(doc: dict, appendices: list[dict]) -> list[dict]:
+    rows = []
+    for appendix in appendices:
+        text = appendix.get("text", "").strip()
+        if not text:
+            continue
+
+        appendix_id = appendix.get("appendix_id") or f"appendix_{len(rows) + 1}"
+        title = appendix.get("title") or appendix_id
+        rows.append(
+            {
+                **doc_metadata(doc),
+                "unit_id": make_unit_id(doc["doc_id"], "appendix", appendix_id=appendix_id),
+                "doc_id": doc["doc_id"],
+                "doc_title": doc["title"],
+                "doc_number": doc["doc_number"],
+                "doc_type": doc["doc_type"],
+                "source_url": doc["source_url"],
+                "section_type": "appendix",
+                "appendix_id": appendix_id,
+                "appendix_title": title,
+                "level": "appendix",
+                "text": text,
+                "citation": f"{doc['title']}, {title}",
+            }
+        )
+    return rows
+
+
 def build_legal_units(doc: dict) -> list[dict]:
-    articles = parse_articles(doc, doc["clean_text"])
+    main_text = doc.get("main_text")
+    appendices = doc.get("appendices")
+    if main_text is None:
+        main_text, detected_appendices = split_main_and_appendices(doc["clean_text"])
+        appendices = appendices if appendices is not None else detected_appendices
+
     legal_units = []
-    for article in articles:
+    for article in parse_articles(doc, main_text):
         legal_units.extend(parse_clauses(article))
+    legal_units.extend(appendix_units(doc, appendices or []))
     return legal_units
 
 
@@ -125,9 +205,13 @@ def make_context_header(unit: dict) -> str:
         unit["doc_title"],
         f"Số hiệu: {unit['doc_number']}",
     ]
+    if unit.get("section_type") == "appendix":
+        lines.append(unit.get("appendix_title") or unit.get("appendix_id") or "Phụ lục")
+        return "\n".join(lines)
+
     if unit.get("chapter"):
         lines.append(f"Chương {unit['chapter']}")
-    lines.append(f"Điều {unit['article_no']}. {unit['article_title']}")
+    lines.append(f"Điều {unit['article_label']}. {unit['article_title']}")
     if unit.get("clause_no"):
         lines.append(f"Khoản {unit['clause_no']}")
     return "\n".join(lines)
@@ -138,7 +222,7 @@ def make_chunk_text(unit: dict, body: str) -> str:
 
 
 def point_label_to_id(label: str) -> str:
-    return label.lower().replace("đ", "d")
+    return label.lower().replace("đ", "dd")
 
 
 def format_point_range(labels: list[str]) -> str:
@@ -152,7 +236,7 @@ def split_by_points(text: str, max_chars: int = MAX_CHARS) -> list[dict]:
     if len(matches) < POINT_SPLIT_MIN_POINTS:
         return []
 
-    intro = text[:matches[0].start()].strip()
+    intro = text[: matches[0].start()].strip()
     point_parts = []
     for idx, match in enumerate(matches):
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
@@ -167,9 +251,7 @@ def split_by_points(text: str, max_chars: int = MAX_CHARS) -> list[dict]:
     for part in point_parts:
         part_len = len(part["text"]) + 1
         if current_parts and current_len + part_len > max_chars:
-            body_parts = []
-            if intro:
-                body_parts.append(intro)
+            body_parts = [intro] if intro else []
             body_parts.extend(current_parts)
             groups.append({"labels": current_labels, "text": "\n".join(body_parts).strip()})
             current_labels = []
@@ -181,9 +263,7 @@ def split_by_points(text: str, max_chars: int = MAX_CHARS) -> list[dict]:
         current_len += part_len
 
     if current_parts:
-        body_parts = []
-        if intro:
-            body_parts.append(intro)
+        body_parts = [intro] if intro else []
         body_parts.extend(current_parts)
         groups.append({"labels": current_labels, "text": "\n".join(body_parts).strip()})
 
@@ -193,13 +273,17 @@ def split_by_points(text: str, max_chars: int = MAX_CHARS) -> list[dict]:
 def chunk_unit(unit: dict) -> list[dict]:
     text = unit["text"]
     point_count = len(POINT_RE.findall(text))
-    should_split_points = len(text) > POINT_SPLIT_MIN_CHARS and point_count >= POINT_SPLIT_MIN_POINTS
+    should_split_points = (
+        unit.get("section_type") == "main"
+        and len(text) > POINT_SPLIT_MIN_CHARS
+        and point_count >= POINT_SPLIT_MIN_POINTS
+    )
 
     if should_split_points:
         point_groups = split_by_points(text)
         if point_groups:
             chunks = []
-            for idx, group in enumerate(point_groups, 1):
+            for group in point_groups:
                 point_range = format_point_range(group["labels"])
                 point_id = "_".join(point_label_to_id(label) for label in group["labels"])
                 citation = f"{unit['citation']} điểm {point_range}"
@@ -214,7 +298,7 @@ def chunk_unit(unit: dict) -> list[dict]:
                 }
                 chunks.append(
                     {
-                        "chunk_id": f"{unit['unit_id']}__diem_{point_id}",
+                        "chunk_id": f"{unit['unit_id']}__point_{point_id}",
                         "text": group["text"],
                         "embedding_text": make_chunk_text(metadata, group["text"]),
                         "metadata": metadata,
@@ -258,7 +342,7 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def build_from_processed_file(processed_path: Path, structured_dir: Path, chunks_dir: Path) -> tuple[Path, Path]:
-    with processed_path.open("r", encoding="utf-8") as f:
+    with processed_path.open("r", encoding="utf-8-sig") as f:
         doc = json.load(f)
 
     legal_units = build_legal_units(doc)
@@ -277,6 +361,3 @@ def build_all(processed_dir: Path, structured_dir: Path, chunks_dir: Path) -> No
         units_path, chunks_path = build_from_processed_file(processed_path, structured_dir, chunks_dir)
         print(f"[OK] Built legal units: {units_path}")
         print(f"[OK] Built chunks: {chunks_path}")
-
-
-

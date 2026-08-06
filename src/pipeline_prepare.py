@@ -11,8 +11,9 @@ _ROOT = _HERE.parent if _HERE.name == "src" else _HERE.parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.crawler import clean_dataset, tvpl_crawler
+from src.crawler import clean_dataset, official_crawler
 from src import chunking
+from src.quality_gate import run_quality_gate
 
 
 RAW_DIR = _ROOT / "data" / "raw"
@@ -21,9 +22,9 @@ PROCESSED_DIR = _ROOT / "data" / "processed"
 
 def crawl_documents():
     session = requests.Session()
-    session.headers.update(tvpl_crawler.HEADERS)
+    session.headers.update(official_crawler.HEADERS)
 
-    print("[*] Warm-up: lay cookies tu trang chu...")
+    print("[*] Warm-up TVPL source...")
     try:
         session.get("https://thuvienphapluat.vn/", timeout=10)
         print("[OK] Cookies OK")
@@ -32,12 +33,12 @@ def crawl_documents():
 
     time.sleep(2)
 
-    documents = tvpl_crawler.SEED_DOCUMENTS
-    print(f"[*] Bat dau crawl {len(documents)} van ban...\n" + "=" * 50)
+    documents = official_crawler.OFFICIAL_DOCUMENTS
+    print(f"[*] Bat dau crawl {len(documents)} van ban tu TVPL...\n" + "=" * 50)
 
     for idx, doc in enumerate(documents, 1):
         print(f"\n[Progress {idx}/{len(documents)}]")
-        tvpl_crawler.crawl_thuvienphapluat(doc, session)
+        official_crawler.crawl_official_document(doc, session)
         time.sleep(3)
 
 
@@ -58,6 +59,7 @@ def clean_documents():
 
 def build_chunking_outputs():
     chunking.build_all(PROCESSED_DIR, _ROOT / "data" / "structured", _ROOT / "data" / "chunks")
+    run_quality_gate(PROCESSED_DIR, _ROOT / "data" / "structured", _ROOT / "data" / "chunks")
 
 
 def main():
