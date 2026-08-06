@@ -1,9 +1,10 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from src import chunking
-from src.quality_gate import check_processed_doc
+from src.quality_gate import check_processed_doc, load_rows
 
 
 def sample_doc(**overrides):
@@ -64,6 +65,31 @@ class ChunkingTests(unittest.TestCase):
         self.assertTrue(main_chunk["chunk_id"].startswith("demo_doc__main__article_1__clause_1"))
         self.assertEqual(main_chunk["metadata"]["source_provider"], "tvpl")
         self.assertEqual(main_chunk["metadata"]["source_format"], "html")
+
+    def test_trailing_structure_headings_do_not_leak_into_previous_article(self):
+        units = chunking.build_legal_units(sample_doc())
+        chunks = chunking.build_chunks(units)
+
+        article_1_chunks = [
+            chunk for chunk in chunks
+            if chunk["metadata"].get("article_no") == 1
+        ]
+
+        self.assertTrue(article_1_chunks)
+        self.assertNotIn("# Chương", " ".join(chunk["text"] for chunk in article_1_chunks))
+        self.assertNotIn("PHỤ LỤC", " ".join(chunk["text"] for chunk in article_1_chunks))
+
+    def test_quality_gate_reads_pretty_json_outputs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / "rows.json"
+            temp_path.write_text(
+                json.dumps([{"chunk_id": "demo"}], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            rows = load_rows(temp_path)
+
+        self.assertEqual(rows, [{"chunk_id": "demo"}])
 
     def test_point_ids_keep_d_and_dd_distinct(self):
         self.assertEqual(chunking.point_label_to_id("d"), "d")

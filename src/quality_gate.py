@@ -10,6 +10,12 @@ ARTICLE_HEADING_RE = re.compile(
     r"(?m)^\s*(?:#{1,6}\s*)?(?:[·oº\-\s]*)?Điều\s+(\d+[a-zA-Z]?)\s*[.:]",
     re.IGNORECASE,
 )
+STRUCTURE_HEADING_RE = re.compile(
+    r"(?m)^\s*#{1,6}\s*(?:Chương|Mục|Tiểu mục)\b",
+    re.IGNORECASE,
+)
+EMBEDDING_MARKDOWN_RE = re.compile(r"(^|\s)#{1,6}\s|[*_`]+")
+CHUNK_TEXT_MAX_CHARS = 2200
 
 EXPECTED_ARTICLE_COUNTS = {
     "31_2024_QH15": 260,
@@ -45,6 +51,21 @@ def load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def load_rows(path: Path) -> list[dict]:
+    if path.suffix == ".jsonl":
+        return load_jsonl(path)
+
+    with path.open(encoding="utf-8-sig") as f:
+        rows = json.load(f)
+    if not isinstance(rows, list):
+        raise QualityGateError(f"{path}: expected a list of rows")
+    return rows
+
+
+def row_paths(directory: Path, pattern: str) -> list[Path]:
+    return sorted(list(directory.glob(f"{pattern}.json")) + list(directory.glob(f"{pattern}.jsonl")))
+
+
 def run_quality_gate(processed_dir: Path, structured_dir: Path, chunks_dir: Path) -> None:
     errors: list[str] = []
 
@@ -54,14 +75,14 @@ def run_quality_gate(processed_dir: Path, structured_dir: Path, chunks_dir: Path
         errors.extend(check_processed_doc(processed_path, doc))
 
     all_units = []
-    for units_path in sorted(structured_dir.glob("*_legal_units.jsonl")):
-        rows = load_jsonl(units_path)
+    for units_path in row_paths(structured_dir, "*_legal_units"):
+        rows = load_rows(units_path)
         all_units.extend(rows)
         errors.extend(check_units(units_path, rows))
 
     all_chunks = []
-    for chunks_path in sorted(chunks_dir.glob("*_chunks.jsonl")):
-        rows = load_jsonl(chunks_path)
+    for chunks_path in row_paths(chunks_dir, "*_chunks"):
+        rows = load_rows(chunks_path)
         all_chunks.extend(rows)
         errors.extend(check_chunks(chunks_path, rows))
 
@@ -136,6 +157,8 @@ def check_units(path: Path, rows: list[dict]) -> list[str]:
 
         if row.get("section_type") == "main" and ARTICLE_HEADING_RE.search(text):
             errors.append(f"{path.name}: {unit_id} contains another article heading")
+        if row.get("section_type") == "main" and STRUCTURE_HEADING_RE.search(text):
+            errors.append(f"{path.name}: {unit_id} contains trailing structure heading")
 
     return errors
 
@@ -162,6 +185,14 @@ def check_chunks(path: Path, rows: list[dict]) -> list[str]:
                 errors.append(f"{path.name}: {chunk_id} metadata contains unverified field {field}")
         if metadata.get("section_type") == "main" and ARTICLE_HEADING_RE.search(text):
             errors.append(f"{path.name}: {chunk_id} contains another article heading")
+        if metadata.get("section_type") == "main" and STRUCTURE_HEADING_RE.search(text):
+            errors.append(f"{path.name}: {chunk_id} contains trailing structure heading")
+        if "\n" in row.get("embedding_text", ""):
+            errors.append(f"{path.name}: {chunk_id} embedding_text contains newline")
+        if EMBEDDING_MARKDOWN_RE.search(row.get("embedding_text", "")):
+            errors.append(f"{path.name}: {chunk_id} embedding_text contains markdown marker")
+        if len(text.strip()) > CHUNK_TEXT_MAX_CHARS:
+            errors.append(f"{path.name}: {chunk_id} text exceeds {CHUNK_TEXT_MAX_CHARS} chars")
 
     return errors
 

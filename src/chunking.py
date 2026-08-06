@@ -13,8 +13,16 @@ CHAPTER_RE = re.compile(
     r"(?m)^\s*(?:#{1,6}\s*)?(?:[·oº\-\s]*)?Chương\s+([0-9IVXLCDM]+)\b.*$",
     re.IGNORECASE,
 )
+STRUCTURE_HEADING_RE = re.compile(
+    r"(?m)^\s*#{1,6}\s*(?:Chương|Mục|Tiểu mục)\b.*$",
+    re.IGNORECASE,
+)
 CLAUSE_RE = re.compile(r"(?m)^(\d+)\s*\.\s+")
 POINT_RE = re.compile(r"(?m)^\s*(?:[-–—]\s*)?([a-zđ])\)\s+", re.IGNORECASE)
+MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s*#{1,6}\s*")
+LIST_MARKER_RE = re.compile(r"(?m)^\s*[-*+]\s+")
+INLINE_MARKDOWN_RE = re.compile(r"[*_`]+")
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.;:!?])\s+")
 
 MAX_CHARS = 2200
 SHORT_TEXT_CHARS = 30
@@ -40,6 +48,13 @@ def current_chapter(text_before_article: str):
     if not matches:
         return None
     return matches[-1].group(1)
+
+
+def strip_trailing_structure_headings(text: str) -> str:
+    match = STRUCTURE_HEADING_RE.search(text)
+    if not match:
+        return text.strip()
+    return text[: match.start()].strip()
 
 
 def doc_metadata(doc: dict) -> dict:
@@ -72,7 +87,7 @@ def parse_articles(doc: dict, text: str) -> list[dict]:
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
         article_no = match.group(1)
         article_title = match.group(2).strip()
-        body = text[match.end():end].strip()
+        body = strip_trailing_structure_headings(text[match.end():end])
 
         articles.append(
             {
@@ -186,16 +201,57 @@ def split_long_text(text: str, max_chars: int = MAX_CHARS) -> list[str]:
     current = []
     current_len = 0
 
-    for paragraph in paragraphs:
-        if current and current_len + len(paragraph) + 1 > max_chars:
+    def flush_current():
+        nonlocal current, current_len
+        if current:
             chunks.append("\n".join(current))
             current = []
             current_len = 0
+
+    for paragraph in paragraphs:
+        if len(paragraph) > max_chars:
+            flush_current()
+            chunks.extend(split_long_paragraph(paragraph, max_chars))
+            continue
+
+        if current and current_len + len(paragraph) + 1 > max_chars:
+            flush_current()
         current.append(paragraph)
         current_len += len(paragraph) + 1
 
+    flush_current()
+
+    return chunks
+
+
+def split_long_paragraph(paragraph: str, max_chars: int = MAX_CHARS) -> list[str]:
+    pieces = [piece.strip() for piece in SENTENCE_SPLIT_RE.split(paragraph) if piece.strip()]
+    if not pieces:
+        return []
+
+    chunks = []
+    current = []
+    current_len = 0
+
+    for piece in pieces:
+        if len(piece) > max_chars:
+            if current:
+                chunks.append(" ".join(current))
+                current = []
+                current_len = 0
+            chunks.extend(piece[i : i + max_chars].strip() for i in range(0, len(piece), max_chars))
+            continue
+
+        if current and current_len + len(piece) + 1 > max_chars:
+            chunks.append(" ".join(current))
+            current = []
+            current_len = 0
+
+        current.append(piece)
+        current_len += len(piece) + 1
+
     if current:
-        chunks.append("\n".join(current))
+        chunks.append(" ".join(current))
 
     return chunks
 
@@ -219,6 +275,17 @@ def make_context_header(unit: dict) -> str:
 
 def make_chunk_text(unit: dict, body: str) -> str:
     return f"{make_context_header(unit)}\n\n{body}".strip()
+
+
+def normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def normalize_embedding_text(text: str) -> str:
+    text = MARKDOWN_HEADING_RE.sub("", text)
+    text = LIST_MARKER_RE.sub("", text)
+    text = INLINE_MARKDOWN_RE.sub("", text)
+    return normalize_text(text)
 
 
 def point_label_to_id(label: str) -> str:
@@ -296,14 +363,22 @@ def chunk_unit(unit: dict) -> list[dict]:
                     "citation": citation,
                     "split_reason": "long_clause_with_points",
                 }
-                chunks.append(
-                    {
-                        "chunk_id": f"{unit['unit_id']}__point_{point_id}",
-                        "text": group["text"],
-                        "embedding_text": make_chunk_text(metadata, group["text"]),
-                        "metadata": metadata,
-                    }
-                )
+                parts = split_long_text(group["text"])
+                for idx, part in enumerate(parts, 1):
+                    part_metadata = dict(metadata)
+                    chunk_id = f"{unit['unit_id']}__point_{point_id}"
+                    if len(parts) > 1:
+                        chunk_id = f"{chunk_id}__part_{idx}"
+                        part_metadata["part_index"] = idx
+                        part_metadata["part_count"] = len(parts)
+                    chunks.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "text": normalize_text(part),
+                            "embedding_text": normalize_embedding_text(make_chunk_text(part_metadata, part)),
+                            "metadata": part_metadata,
+                        }
+                    )
             return chunks
 
     parts = split_long_text(text)
@@ -319,8 +394,8 @@ def chunk_unit(unit: dict) -> list[dict]:
         chunks.append(
             {
                 "chunk_id": chunk_id,
-                "text": part,
-                "embedding_text": make_chunk_text(unit, part),
+                "text": normalize_text(part),
+                "embedding_text": normalize_embedding_text(make_chunk_text(unit, part)),
                 "metadata": metadata,
             }
         )
@@ -334,12 +409,10 @@ def build_chunks(units: list[dict]) -> list[dict]:
     return chunks
 
 
-def write_jsonl(path: Path, rows: list[dict]) -> None:
+def write_json(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-
+        json.dump(rows, f, ensure_ascii=False, indent=2)
 
 def build_from_processed_file(processed_path: Path, structured_dir: Path, chunks_dir: Path) -> tuple[Path, Path]:
     with processed_path.open("r", encoding="utf-8-sig") as f:
@@ -348,10 +421,10 @@ def build_from_processed_file(processed_path: Path, structured_dir: Path, chunks
     legal_units = build_legal_units(doc)
     chunks = build_chunks(legal_units)
 
-    units_path = structured_dir / f"{doc['doc_id']}_legal_units.jsonl"
-    chunks_path = chunks_dir / f"{doc['doc_id']}_chunks.jsonl"
-    write_jsonl(units_path, legal_units)
-    write_jsonl(chunks_path, chunks)
+    units_path = structured_dir / f"{doc['doc_id']}_legal_units.json"
+    chunks_path = chunks_dir / f"{doc['doc_id']}_chunks.json"
+    write_json(units_path, legal_units)
+    write_json(chunks_path, chunks)
 
     return units_path, chunks_path
 
