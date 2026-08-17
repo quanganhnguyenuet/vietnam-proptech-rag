@@ -1,0 +1,51 @@
+# =============================================================================
+# Embedding Configuration — BGE-M3
+# =============================================================================
+# Model: BAAI/bge-m3
+#   - Dense:  1024-dim vectors (cosine similarity)
+#   - Sparse: learned sparse retrieval (BM25-style)
+#   - ColBERT: multi-vector late interaction (optional, heavier)
+#
+# Tham khảo: https://huggingface.co/BAAI/bge-m3
+# =============================================================================
+
+model:
+  name: "BAAI/bge-m3"
+  # Thư mục cache model trên local (để không tải lại mỗi lần chạy).
+  # Nếu để null, dùng cache mặc định của HuggingFace (~/.cache/huggingface).
+  cache_dir: null
+  # Device: "cuda", "cpu", hoặc null (auto-detect).
+  device: null
+
+embedding:
+  # Loại embedding cần sinh.
+  # - dense:   vector 1024-dim, dùng cho cosine similarity search.
+  # - sparse:  learned sparse vector, dùng cho lexical matching (thay BM25).
+  # - colbert: multi-vector, dùng cho late interaction reranking (nặng hơn).
+  use_dense: true
+  use_sparse: true
+  use_colbert: false
+
+  # Chiều dài tối đa (tokens) cho mỗi đoạn text khi encode.
+  max_length: 8192
+
+  # Batch size khi encode nhiều chunks cùng lúc.
+  # Giảm nếu bị OOM (Out Of Memory).
+  batch_size: 32
+
+  # Normalize dense vectors (L2 norm = 1) trước khi lưu.
+  # Luôn bật để dùng cosine similarity.
+  normalize: true
+
+# =============================================================================
+# Vector Store — ChromaDB (local persistent)
+# =============================================================================
+
+vector_store:
+  provider: "chromadb"
+  # Đường dẫn lưu trữ ChromaDB trên disk.
+  persist_directory: "data/vectordb"
+  # Tên collection trong ChromaDB.
+  collection_name: "vn_legal_chunks"
+  # Distance metric: "cosine" | "l2" | "ip" (inner product).
+  distance_metric: "cosine"

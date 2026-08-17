@@ -11,11 +11,15 @@ pypdf==4.2.0
 pandas==2.2.2
 jsonlines==4.0.0
 
-# === RAG PIPELINE (future) ===
+# === EMBEDDING & RAG ===
+FlagEmbedding==1.4.0
+sentence-transformers==5.5.1
+transformers==4.57.1
+chromadb==1.5.9
+pyyaml==6.0.3
+python-dateutil==2.9.0.post0
 langchain==0.2.5
 langchain-community==0.2.5
-chromadb==0.5.3
-sentence-transformers==3.0.1
 
 # === API ===
 fastapi==0.111.0
