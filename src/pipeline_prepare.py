@@ -36,10 +36,28 @@ def crawl_documents():
     documents = official_crawler.OFFICIAL_DOCUMENTS
     print(f"[*] Bat dau crawl {len(documents)} van ban tu TVPL...\n" + "=" * 50)
 
-    for idx, doc in enumerate(documents, 1):
-        print(f"\n[Progress {idx}/{len(documents)}]")
-        official_crawler.crawl_official_document(doc, session)
-        time.sleep(3)
+    failed_documents = []
+    try:
+        for idx, doc in enumerate(documents, 1):
+            print(f"\n[Progress {idx}/{len(documents)}]")
+            try:
+                success = official_crawler.crawl_official_document(doc, session)
+            except Exception as exc:
+                print(f"[!] Crawl failed for {doc['id']}: {exc}")
+                success = False
+
+            if not success:
+                failed_documents.append(doc["id"])
+            time.sleep(3)
+    finally:
+        session.close()
+
+    if failed_documents:
+        failed = ", ".join(failed_documents)
+        raise RuntimeError(
+            f"Crawl failed for {len(failed_documents)} document(s): {failed}. "
+            "Stopped before cleaning to avoid indexing stale raw files."
+        )
 
 
 def clean_documents():

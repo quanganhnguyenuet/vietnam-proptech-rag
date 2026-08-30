@@ -465,6 +465,7 @@ def ingest_chunks_to_store(
     chunks_dir: str | Path,
     config_path: str | Path = _CONFIG_PATH,
     project_root: Path | None = None,
+    prune: bool = False,
 ) -> int:
     """
     Pipeline đầy đủ: đọc tất cả file *_chunks.json → embed → upsert vào ChromaDB.
@@ -473,20 +474,61 @@ def ingest_chunks_to_store(
         chunks_dir:    Thư mục chứa file *_chunks.json
         config_path:   Đường dẫn config YAML
         project_root:  Thư mục gốc project
+        prune:         Xóa ID trong collection nếu không còn trong các file chunk
 
     Returns:
         Tổng số chunks đã ingest.
     """
     chunks_dir = Path(chunks_dir)
     total = 0
-    with ChromaVectorStore.from_config(config_path, project_root) as store:
-        for chunks_path in sorted(chunks_dir.glob("*_chunks.json")):
-            with chunks_path.open("r", encoding="utf-8-sig") as f:
-                chunks = json.load(f)
+    indexed_ids: set[str] = set()
+    chunk_paths = sorted(chunks_dir.glob("*_chunks.json"))
+    if not chunk_paths:
+        raise FileNotFoundError(f"No *_chunks.json files found in {chunks_dir}")
 
+    chunk_batches: list[tuple[Path, list[dict]]] = []
+    for chunks_path in chunk_paths:
+        with chunks_path.open("r", encoding="utf-8-sig") as f:
+            chunks = json.load(f)
+
+        for chunk in chunks:
+            chunk_id = chunk.get("chunk_id")
+            if not chunk_id:
+                raise ValueError(f"{chunks_path.name} contains a chunk without chunk_id")
+            if chunk_id in indexed_ids:
+                raise ValueError(f"Duplicate chunk_id across input files: {chunk_id}")
+            indexed_ids.add(chunk_id)
+        chunk_batches.append((chunks_path, chunks))
+
+    if not indexed_ids:
+        raise ValueError(f"No chunks found in {chunks_dir}")
+
+    with ChromaVectorStore.from_config(config_path, project_root) as store:
+        existing_ids: set[str] = set()
+        if prune:
+            existing = store.collection.get(include=[])
+            existing_ids = set(existing.get("ids") or [])
+
+        for chunks_path, chunks in chunk_batches:
             logger.info("[Ingest] %s — %d chunks", chunks_path.name, len(chunks))
             count = store.upsert_chunks(chunks)
             total += count
+
+        if prune:
+            stale_ids = sorted(existing_ids - indexed_ids)
+            for start in range(0, len(stale_ids), 1000):
+                store.collection.delete(ids=stale_ids[start : start + 1000])
+            if stale_ids:
+                logger.info("[Ingest] Removed %d stale chunks.", len(stale_ids))
+
+            actual_ids = set(store.collection.get(include=[]).get("ids") or [])
+            if actual_ids != indexed_ids:
+                missing = len(indexed_ids - actual_ids)
+                extra = len(actual_ids - indexed_ids)
+                raise RuntimeError(
+                    "Vector store synchronization failed: "
+                    f"missing={missing}, extra={extra}"
+                )
 
         logger.info("[Ingest] Done. Total: %d chunks in collection.", store.count())
     return total
