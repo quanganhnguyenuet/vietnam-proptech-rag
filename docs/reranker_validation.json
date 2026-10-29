@@ -1,0 +1,23 @@
+{
+  "model": "BAAI/bge-reranker-v2-m3",
+  "device": "cuda:0",
+  "loaded": true,
+  "dtype": "torch.float16",
+  "local_files_only": true,
+  "batch_size": 1,
+  "max_length": 1024,
+  "load_seconds": 9.91,
+  "smoke_test": [
+    {
+      "chunk_id": "land",
+      "score": 0.98583984375
+    },
+    {
+      "chunk_id": "other",
+      "score": 1.6033649444580078e-05
+    }
+  ],
+  "smoke_test_passed": true,
+  "inference_seconds": 0.46,
+  "peak_cuda_memory_mib": 1092.8
+}

@@ -13,6 +13,8 @@ from enum import Enum
 from typing import Any, Iterable
 
 from src.retrieval.query_normalizer import normalize_query
+from src.crawler.sources import load_sources
+from src.retrieval.legal_graph import ReferenceResolver
 
 
 class QueryIntent(str, Enum):
@@ -49,6 +51,7 @@ class QueryEntities:
     point_labels: tuple[str, ...] = ()
     section_type: str | None = None
     canonical_terms: tuple[str, ...] = ()
+    article_references: tuple[tuple[str, str, int | None], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,10 @@ DOCUMENT_NUMBERS: dict[str, str] = {
     "101_2024_ND_CP": "101/2024/NĐ-CP",
     "102_2024_ND_CP": "102/2024/NĐ-CP",
 }
+for _doc in load_sources():
+    DOCUMENT_NUMBERS[_doc["id"]] = _doc["doc_number"]
+    for _alias in (_doc["doc_number"], _doc["doc_number"].replace("NĐ", "ND"), *_doc.get("aliases", [])):
+        DOCUMENT_ALIASES[_alias.casefold()] = _doc["id"]
 
 INTENT_KEYWORDS: dict[QueryIntent, tuple[str, ...]] = {
     QueryIntent.COMPARISON: (
@@ -179,8 +186,8 @@ TOPIC_DOCUMENT_ROUTES: dict[QueryTopic, tuple[str, ...]] = {
         "31_2024_QH15",
         "102_2024_ND_CP",
     ),
-    QueryTopic.HOUSING: ("27_2023_QH15",),
-    QueryTopic.REAL_ESTATE_BUSINESS: ("29_2023_QH15",),
+    QueryTopic.HOUSING: ("27_2023_QH15", "95_2024_ND_CP"),
+    QueryTopic.REAL_ESTATE_BUSINESS: ("29_2023_QH15", "96_2024_ND_CP"),
     QueryTopic.GENERAL: (),
 }
 
@@ -310,7 +317,7 @@ class QueryProcessor:
         document_ids = _unique(
             doc_id
             for alias, doc_id in DOCUMENT_ALIASES.items()
-            if alias in folded
+            if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded)
         )
 
         known_numbers = [DOCUMENT_NUMBERS[doc_id] for doc_id in document_ids]
@@ -319,6 +326,8 @@ class QueryProcessor:
             for match in DOCUMENT_NUMBER_RE.finditer(query)
         )
         document_numbers = _unique((*known_numbers, *raw_numbers))
+        by_number = {number.casefold(): doc_id for doc_id, number in DOCUMENT_NUMBERS.items()}
+        document_ids = _unique((*document_ids, *(by_number[number.casefold()] for number in document_numbers if number.casefold() in by_number)))
 
         article_numbers = _unique(
             match.group(1).lower() for match in ARTICLE_RE.finditer(query)
@@ -349,6 +358,11 @@ class QueryProcessor:
             point_labels=point_labels,
             section_type=section_type,
             canonical_terms=canonical_terms,
+            article_references=_unique(
+                (ref["target_doc"], ref["article_no"], ref["target_clause_no"])
+                for ref in ReferenceResolver(load_sources()).references(query, "__query__")
+                if ref["target_doc"] and ref["target_doc"] != "__query__"
+            ),
         )
 
         reasons: list[str] = []
@@ -411,24 +425,44 @@ class QueryProcessor:
     @staticmethod
     def _build_metadata_filter(entities: QueryEntities) -> dict[str, Any]:
         conditions: list[dict[str, Any]] = []
+        references = entities.article_references
+        paired = (
+            len(entities.document_ids) > 1 and len(entities.article_numbers) > 1
+            and {ref[0] for ref in references} == set(entities.document_ids)
+            and {ref[1] for ref in references} == set(entities.article_numbers)
+        )
+        if paired:
+            branches = []
+            for doc_id, article, clause in references:
+                branch = [{"doc_id": doc_id}, {"article_no": int(article) if article.isdigit() else article}]
+                if clause is not None:
+                    branch.append({"clause_no": clause})
+                branches.append({"$and": branch})
+            conditions.append({"$or": branches})
 
-        if entities.document_ids:
+        if entities.document_ids and not paired:
             value: Any
             if len(entities.document_ids) == 1:
                 value = entities.document_ids[0]
             else:
                 value = {"$in": list(entities.document_ids)}
             conditions.append({"doc_id": value})
+        elif entities.document_numbers and not paired:
+            numbers = list(entities.document_numbers)
+            conditions.append({"doc_number": numbers[0] if len(numbers) == 1 else {"$in": numbers}})
 
-        if entities.article_numbers:
+        if entities.article_numbers and not paired:
             articles: list[int | str] = [
                 int(number) if number.isdigit() else number
                 for number in entities.article_numbers
             ]
-            value = articles[0] if len(articles) == 1 else {"$in": articles}
-            conditions.append({"article_no": value})
+            if len({type(article) for article in articles}) > 1:
+                conditions.append({"$or": [{"article_no": article} for article in articles]})
+            else:
+                value = articles[0] if len(articles) == 1 else {"$in": articles}
+                conditions.append({"article_no": value})
 
-        if entities.clause_numbers:
+        if entities.clause_numbers and not paired:
             clauses = list(entities.clause_numbers)
             value = clauses[0] if len(clauses) == 1 else {"$in": clauses}
             conditions.append({"clause_no": value})

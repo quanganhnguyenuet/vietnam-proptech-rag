@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
@@ -30,6 +31,7 @@ _CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 
 @dataclass
 class EmbeddingConfig:
+    provider: str = "bge_m3"
     model_name: str = "BAAI/bge-m3"
     cache_dir: str | None = None
     device: str | None = None
@@ -41,6 +43,32 @@ class EmbeddingConfig:
     max_length: int = 8192
     batch_size: int = 32
     normalize: bool = True
+    dimensions: int | None = None
+    timeout: float = 60.0
+    max_retries: int = 3
+
+    def __post_init__(self):
+        if self.provider not in {"bge_m3", "openai"}:
+            raise ValueError(f"Unknown embedding provider: {self.provider}")
+        if self.batch_size <= 0 or self.max_length <= 0:
+            raise ValueError("batch_size and max_length must be positive")
+        if self.timeout <= 0 or self.max_retries < 0:
+            raise ValueError("timeout must be positive and max_retries nonnegative")
+        if self.provider == "openai":
+            limits = {"text-embedding-3-small": 1536, "text-embedding-3-large": 3072}
+            if self.model_name not in limits:
+                raise ValueError("OpenAI provider supports text-embedding-3-small/large")
+            if self.dimensions is not None and not 1 <= self.dimensions <= limits[self.model_name]:
+                raise ValueError("Invalid dimensions for the configured OpenAI model")
+            if not self.use_dense or self.use_sparse or self.use_colbert:
+                raise ValueError("OpenAI embeddings require dense=true, sparse=false, colbert=false")
+            if self.max_length > 8192:
+                raise ValueError("OpenAI embedding max_length must not exceed 8192")
+
+    @property
+    def fingerprint(self) -> str:
+        dimension = self.dimensions or (1536 if self.model_name == "text-embedding-3-small" else 3072 if self.provider == "openai" else 1024)
+        return f"{self.provider}:{self.model_name}:{dimension}:normalize={self.normalize}"
 
     @classmethod
     def from_yaml(cls, path: str | Path = _CONFIG_PATH) -> EmbeddingConfig:
@@ -55,6 +83,7 @@ class EmbeddingConfig:
         model_cfg = raw.get("model", {})
         embed_cfg = raw.get("embedding", {})
         return cls(
+            provider=model_cfg.get("provider", "bge_m3"),
             model_name=model_cfg.get("name", cls.model_name),
             cache_dir=model_cfg.get("cache_dir"),
             device=model_cfg.get("device"),
@@ -64,6 +93,9 @@ class EmbeddingConfig:
             max_length=embed_cfg.get("max_length", cls.max_length),
             batch_size=embed_cfg.get("batch_size", cls.batch_size),
             normalize=embed_cfg.get("normalize", cls.normalize),
+            dimensions=embed_cfg.get("dimensions"),
+            timeout=embed_cfg.get("timeout", cls.timeout),
+            max_retries=embed_cfg.get("max_retries", cls.max_retries),
         )
 
 
@@ -99,6 +131,8 @@ class BGEM3Embedder:
 
     def __init__(self, config: EmbeddingConfig | None = None):
         self.config = config or EmbeddingConfig()
+        if self.config.provider != "bge_m3":
+            raise ValueError("BGEM3Embedder requires the bge_m3 provider; use get_embedder for provider selection")
         self._model = None
 
     @classmethod
@@ -157,7 +191,7 @@ class BGEM3Embedder:
         )
 
         kwargs: dict[str, Any] = {
-            "use_fp16": True,
+            "use_fp16": self.config.device == "cuda",
         }
         if self.config.cache_dir:
             kwargs["cache_dir"] = self.config.cache_dir
@@ -194,6 +228,7 @@ class BGEM3Embedder:
 
         try:
             model = SentenceTransformer(self.config.model_name, **kwargs)
+            model.max_seq_length = self.config.max_length
             logger.info("BGE-M3 model loaded (sentence-transformers, dense only).")
             return model
         except Exception as exc:
@@ -284,19 +319,99 @@ class BGEM3Embedder:
         return 1024
 
 
+class Embedder(Protocol):
+    config: EmbeddingConfig
+
+    def encode(self, texts: list[str]) -> EmbeddingResult: ...
+    def encode_single(self, text: str) -> EmbeddingResult: ...
+
+
+class OpenAIEmbedder:
+    """Dense embeddings with bounded requests; never silently truncate legal text."""
+
+    def __init__(self, config: EmbeddingConfig, client=None, tokenizer=None):
+        if config.provider != "openai":
+            raise ValueError("OpenAIEmbedder requires the openai provider")
+        self.config = config
+        self._client = client
+        self._tokenizer = tokenizer
+
+    @property
+    def client(self):
+        if self._client is None:
+            from dotenv import load_dotenv
+            from openai import OpenAI
+
+            load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+            if not os.getenv("OPENAI_API_KEY"):
+                raise ValueError("Set OPENAI_API_KEY in .env or the environment before embedding")
+            self._client = OpenAI(timeout=self.config.timeout, max_retries=self.config.max_retries)
+        return self._client
+
+    @property
+    def tokenizer(self):
+        if self._tokenizer is None:
+            import tiktoken
+            self._tokenizer = tiktoken.get_encoding("cl100k_base")
+        return self._tokenizer
+
+    @property
+    def dense_dim(self) -> int:
+        return self.config.dimensions or (1536 if self.config.model_name == "text-embedding-3-small" else 3072)
+
+    def encode_single(self, text: str) -> EmbeddingResult:
+        return self.encode([text])
+
+    def encode(self, texts: list[str]) -> EmbeddingResult:
+        # Validate the entire input before making any billable request.
+        lengths = []
+        for index, text in enumerate(texts):
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(f"Empty embedding text at index {index}")
+            length = len(self.tokenizer.encode(text, disallowed_special=()))
+            if length > self.config.max_length:
+                raise ValueError(f"Text {index} has {length} tokens; re-chunk below {self.config.max_length}")
+            lengths.append(length)
+        result = EmbeddingResult()
+        start = 0
+        while start < len(texts):
+            end, token_count = start, 0
+            while end < len(texts) and end - start < min(self.config.batch_size, 2048):
+                if token_count + lengths[end] > 300000:
+                    break
+                token_count += lengths[end]
+                end += 1
+            kwargs = {"model": self.config.model_name, "input": texts[start:end], "encoding_format": "float"}
+            if self.config.dimensions is not None:
+                kwargs["dimensions"] = self.config.dimensions
+            response = self.client.embeddings.create(**kwargs)
+            rows = sorted(response.data, key=lambda row: row.index)
+            if [row.index for row in rows] != list(range(end - start)):
+                raise ValueError("OpenAI returned missing or duplicate embedding indices")
+            if any(len(row.embedding) != self.dense_dim for row in rows):
+                raise ValueError("OpenAI returned unexpected vector dimensions")
+            result.dense.extend([list(row.embedding) for row in rows])
+            start = end
+        return result
+
+
 # ---------------------------------------------------------------------------
 # Convenience functions
 # ---------------------------------------------------------------------------
 
-_default_embedder: BGEM3Embedder | None = None
+_default_embedder: Embedder | None = None
+_embedders: dict[str, Embedder] = {}
 
 
-def get_embedder(config_path: str | Path = _CONFIG_PATH) -> BGEM3Embedder:
-    """Lấy singleton embedder instance."""
-    global _default_embedder
-    if _default_embedder is None:
-        _default_embedder = BGEM3Embedder.from_config(config_path)
-    return _default_embedder
+def get_embedder(config_path: str | Path = _CONFIG_PATH) -> Embedder:
+    """Cache by complete configuration, so switching models cannot reuse BGE."""
+    if _default_embedder is not None and Path(config_path).resolve() == _CONFIG_PATH:
+        return _default_embedder
+    config = EmbeddingConfig.from_yaml(config_path)
+    key = json.dumps(vars(config), sort_keys=True)
+    if key not in _embedders:
+        _embedders[key] = OpenAIEmbedder(config) if config.provider == "openai" else BGEM3Embedder(config)
+    return _embedders[key]
 
 
 def embed_texts(texts: list[str], config_path: str | Path = _CONFIG_PATH) -> EmbeddingResult:
@@ -357,6 +472,9 @@ def embed_chunks_file(
 
     # Gắn vector vào chunks
     for idx, chunk in enumerate(chunks):
+        chunk.pop("dense_vector", None)
+        chunk.pop("sparse_vector", None)
+        chunk["embedding_fingerprint"] = embedder.config.fingerprint
         if all_dense:
             chunk["dense_vector"] = all_dense[idx]
         if all_sparse:

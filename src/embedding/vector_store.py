@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,7 +24,7 @@ from typing import Any
 import chromadb
 import yaml
 
-from src.embedding.embedder import BGEM3Embedder, EmbeddingConfig, get_embedder
+from src.embedding.embedder import Embedder, EmbeddingConfig, get_embedder
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +76,14 @@ class ChromaVectorStore:
     def __init__(
         self,
         config: VectorStoreConfig | None = None,
-        embedder: BGEM3Embedder | None = None,
+        embedder: Embedder | None = None,
         project_root: Path | None = None,
+        embedding_config: EmbeddingConfig | None = None,
     ):
         self.config = config or VectorStoreConfig()
         self._embedder = embedder
+        supplied_config = getattr(embedder, "config", None)
+        self.embedding_config = embedding_config or (supplied_config if isinstance(supplied_config, EmbeddingConfig) else EmbeddingConfig())
         self._project_root = project_root or Path(__file__).resolve().parents[2]
         self._client: chromadb.ClientAPI | None = None
         self._collection: chromadb.Collection | None = None
@@ -89,8 +94,11 @@ class ChromaVectorStore:
         config_path: str | Path = _CONFIG_PATH,
         project_root: Path | None = None,
     ) -> ChromaVectorStore:
+        if not Path(config_path).is_file():
+            raise FileNotFoundError(f"Embedding config not found: {config_path}")
         config = VectorStoreConfig.from_yaml(config_path)
-        return cls(config=config, project_root=project_root)
+        return cls(config=config, embedder=get_embedder(config_path), project_root=project_root,
+                   embedding_config=EmbeddingConfig.from_yaml(config_path))
 
     @property
     def client(self) -> chromadb.ClientAPI:
@@ -106,10 +114,25 @@ class ChromaVectorStore:
         if self._collection is None:
             self._collection = self.client.get_or_create_collection(
                 name=self.config.collection_name,
-                metadata={"hnsw:space": self.config.distance_metric},
+                metadata={"hnsw:space": self.config.distance_metric,
+                          "embedding_fingerprint": self.embedding_config.fingerprint},
             )
+            metadata = self._collection.metadata or {}
+            actual_fingerprint = metadata.get("embedding_fingerprint")
+            if actual_fingerprint and actual_fingerprint != self.embedding_config.fingerprint:
+                self._collection = None
+                raise ValueError("Collection embedding model/dimensions differ; choose a new collection and re-ingest")
+            if not actual_fingerprint:
+                if self._collection.count() and self.embedding_config.provider != "bge_m3":
+                    self._collection = None
+                    raise ValueError("Legacy collection has unknown embeddings; use a separate OpenAI collection")
+                if not self._collection.count():
+                    self._collection.modify(metadata={**metadata, "embedding_fingerprint": self.embedding_config.fingerprint})
+                else:
+                    logger.warning("Using legacy BGE collection without embedding fingerprint; re-ingest to verify provenance")
             actual_metric = (self._collection.metadata or {}).get("hnsw:space")
             if actual_metric and actual_metric != self.config.distance_metric:
+                self._collection = None
                 raise ValueError(
                     f"Collection '{self.config.collection_name}' uses "
                     f"'{actual_metric}', not configured metric "
@@ -123,7 +146,7 @@ class ChromaVectorStore:
         return self._collection
 
     @property
-    def embedder(self) -> BGEM3Embedder:
+    def embedder(self) -> Embedder:
         if self._embedder is None:
             self._embedder = get_embedder()
         return self._embedder
@@ -147,6 +170,14 @@ class ChromaVectorStore:
             Số chunks đã upsert.
         """
         total = 0
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        # Check all externally supplied vectors before writing any batch.
+        for chunk in chunks:
+            if chunk.get("dense_vector") is not None and chunk.get("embedding_fingerprint") != self.embedding_config.fingerprint:
+                raise ValueError("Precomputed vectors must have a matching embedding_fingerprint; re-embed this file")
+        if chunks:
+            _ = self.collection  # reject incompatible collections before billable calls
 
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start : start + batch_size]
@@ -205,6 +236,9 @@ class ChromaVectorStore:
                         )
 
             # Upsert vào ChromaDB
+            expected_dim = self.embedding_config.dimensions or (1536 if self.embedding_config.model_name == "text-embedding-3-small" else 3072 if self.embedding_config.provider == "openai" else 1024)
+            if any(vector is None or len(vector) != expected_dim for vector in embeddings):
+                raise ValueError(f"Expected dense embeddings of dimension {expected_dim}")
             self.collection.upsert(
                 ids=ids,
                 embeddings=embeddings,
@@ -212,6 +246,7 @@ class ChromaVectorStore:
                 metadatas=metadatas,
             )
 
+            self.refresh_lexical_index()
             total += len(batch)
             logger.info("  Upserted %d / %d chunks", total, len(chunks))
 
@@ -288,103 +323,35 @@ class ChromaVectorStore:
         return hits
 
     def hybrid_search(
-        self,
-        query: str,
-        top_k: int = 5,
-        where: dict | None = None,
-        dense_candidates: int = 50,
-        sparse_candidates: int = 50,
-        rrf_k: int = 60,
-        dense_weight: float = 1.0,
-        sparse_weight: float = 1.0,
+        self, query: str, top_k: int = 5, where: dict | None = None,
+        dense_candidates: int = 50, sparse_candidates: int = 50,
+        rrf_k: int = 60, dense_weight: float = 1.0, sparse_weight: float = 1.0,
+        *, bm25_candidates: int | None = None, bm25_weight: float | None = None,
     ) -> list[dict]:
-        """Combine dense and learned-sparse rankings with weighted RRF."""
-        if top_k <= 0 or self.count() == 0:
-            return []
-        if rrf_k <= 0:
-            raise ValueError("rrf_k must be greater than zero.")
+        """Always fuse BM25 and vector search, including when BGE returns sparse vectors.
 
-        query_result = self.embedder.encode_single(query)
-        if not query_result.dense:
-            raise ValueError("Dense embedding is required for hybrid search.")
-
-        dense_hits = self.search_by_vector(
-            query_result.dense[0],
-            top_k=max(top_k, dense_candidates),
-            where=where,
+        sparse_candidates/sparse_weight remain aliases for older callers.
+        """
+        from src.retrieval.hybrid import hybrid_search
+        return hybrid_search(
+            self, query, top_k=top_k, where=where,
+            dense_candidates=dense_candidates,
+            bm25_candidates=bm25_candidates if bm25_candidates is not None else sparse_candidates,
+            rrf_k=rrf_k, dense_weight=dense_weight,
+            bm25_weight=bm25_weight if bm25_weight is not None else sparse_weight,
         )
-        if not query_result.sparse:
-            logger.warning("Query has no sparse embedding; returning dense results.")
-            return dense_hits[:top_k]
 
-        get_kwargs: dict[str, Any] = {"include": ["documents", "metadatas"]}
-        if where:
-            get_kwargs["where"] = where
-        rows = self.collection.get(**get_kwargs)
+    def refresh_lexical_index(self) -> None:
+        """Invalidate cached BM25 indexes after a corpus update."""
+        self._bm25_cache = None
 
-        sparse_hits = []
-        for idx, chunk_id in enumerate(rows["ids"]):
-            metadata = rows["metadatas"][idx] if rows["metadatas"] else {}
-            raw_sparse = (metadata or {}).get("_sparse_vector")
-            if not raw_sparse:
-                continue
-            try:
-                sparse_vector = json.loads(raw_sparse)
-                sparse_score = self._sparse_dot(query_result.sparse[0], sparse_vector)
-            except (TypeError, ValueError, KeyError, json.JSONDecodeError):
-                logger.warning("Ignoring invalid sparse vector for chunk '%s'.", chunk_id)
-                continue
-            if sparse_score <= 0:
-                continue
-            sparse_hits.append(
-                {
-                    "chunk_id": chunk_id,
-                    "text": rows["documents"][idx] if rows["documents"] else "",
-                    "metadata": self._public_metadata(metadata),
-                    "distance": None,
-                    "sparse_score": sparse_score,
-                }
-            )
-
-        if not sparse_hits:
-            logger.warning(
-                "Collection has no usable sparse vectors; returning dense results. "
-                "Re-run ingestion to populate sparse metadata."
-            )
-            return dense_hits[:top_k]
-
-        sparse_hits.sort(key=lambda hit: (-hit["sparse_score"], hit["chunk_id"]))
-        sparse_hits = sparse_hits[: max(top_k, sparse_candidates)]
-
-        fused: dict[str, dict] = {}
-        for rank, hit in enumerate(dense_hits, 1):
-            fused[hit["chunk_id"]] = {
-                **hit,
-                "dense_rank": rank,
-                "sparse_rank": None,
-                "sparse_score": None,
-                "score": dense_weight / (rrf_k + rank),
-            }
-
-        for rank, hit in enumerate(sparse_hits, 1):
-            existing = fused.get(hit["chunk_id"])
-            contribution = sparse_weight / (rrf_k + rank)
-            if existing is None:
-                fused[hit["chunk_id"]] = {
-                    **hit,
-                    "dense_rank": None,
-                    "sparse_rank": rank,
-                    "score": contribution,
-                }
-            else:
-                existing["sparse_rank"] = rank
-                existing["sparse_score"] = hit["sparse_score"]
-                existing["score"] += contribution
-
-        return sorted(
-            fused.values(),
-            key=lambda hit: (-hit["score"], hit["chunk_id"]),
-        )[:top_k]
+    def get_chunks(self, ids: list[str]) -> list[dict]:
+        if not ids:
+            return []
+        rows = self.collection.get(ids=ids, include=["documents", "metadatas"])
+        return [{"chunk_id": chunk_id, "text": rows["documents"][i] or "",
+                 "metadata": self._public_metadata(rows["metadatas"][i]) if rows["metadatas"] else {}}
+                for i, chunk_id in enumerate(rows["ids"])]
 
     # ----- Utils -----
 
@@ -396,6 +363,7 @@ class ChromaVectorStore:
         """Xoá toàn bộ collection."""
         self.client.delete_collection(self.config.collection_name)
         self._collection = None
+        self.refresh_lexical_index()
         logger.info("Deleted collection '%s'", self.config.collection_name)
 
     def close(self) -> None:
@@ -419,6 +387,10 @@ class ChromaVectorStore:
         if self.config.distance_metric == "l2":
             return 1.0 / (1.0 + max(distance, 0.0))
         return 1.0 - distance
+
+    @staticmethod
+    def _lexical_tokens(text: str) -> list[str]:
+        return re.findall(r"\w+", unicodedata.normalize("NFC", text).casefold())
 
     @staticmethod
     def _public_metadata(metadata: dict | None) -> dict:

@@ -4,13 +4,16 @@ import re
 import time
 import zipfile
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 from xml.etree import ElementTree
 
 import requests
 from bs4 import BeautifulSoup
 
 from src.crawler import tvpl_crawler
+from src.crawler.sources import load_sources
+from src.crawler.http import create_session
+from src.legal_structure import article_matches
 
 
 _HERE = Path(__file__).resolve().parent
@@ -21,15 +24,9 @@ ATTACHMENT_DIR = RAW_DATA_DIR / "official_attachments"
 
 HEADERS = tvpl_crawler.HEADERS.copy()
 
-EXPECTED_ARTICLE_COUNTS = {
-    "31_2024_QH15": 260,
-    "27_2023_QH15": 198,
-    "29_2023_QH15": 83,
-    "101_2024_ND_CP": 68,
-    "102_2024_ND_CP": 113,
-}
+EXPECTED_ARTICLE_COUNTS = {doc["id"]: doc["expected_article_count"] for doc in load_sources() if doc.get("expected_article_count")}
 
-SOURCE_POLICY = "tvpl_primary_with_attachment_preference"
+SOURCE_POLICY = "registry_sources_with_validated_content"
 
 OFFICIAL_DOCUMENTS = [
     {
@@ -37,11 +34,21 @@ OFFICIAL_DOCUMENTS = [
         "expected_article_count": EXPECTED_ARTICLE_COUNTS.get(doc["id"]),
         "source_policy": SOURCE_POLICY,
     }
-    for doc in tvpl_crawler.SEED_DOCUMENTS
+    for doc in load_sources()
 ]
 
 
 def crawl_official_document(doc_info: dict, session: requests.Session) -> bool:
+    for url in [doc_info["url"], *doc_info.get("fallback_urls", [])]:
+        try:
+            if _crawl_source({**doc_info, "url": url}, session):
+                return True
+        except (requests.RequestException, ValueError, zipfile.BadZipFile) as exc:
+            print(f"[!] Source failed: {url}: {exc}")
+    return False
+
+
+def _crawl_source(doc_info: dict, session: requests.Session) -> bool:
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
     ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -55,7 +62,11 @@ def crawl_official_document(doc_info: dict, session: requests.Session) -> bool:
         return False
 
     soup = BeautifulSoup(response.text, "html.parser")
-    attachments = find_attachment_links(soup, doc_info["url"])
+    # Attachment links outside the legal-content area can belong to related laws.
+    if source_provider(doc_info["url"]) == "tvpl":
+        attachments = []
+    else:
+        attachments = find_attachment_links(soup, doc_info["url"])
     downloaded_files = []
     raw_text = ""
     raw_html = ""
@@ -63,20 +74,39 @@ def crawl_official_document(doc_info: dict, session: requests.Session) -> bool:
 
     # Prefer source attachments only when exposed. Otherwise keep the TVPL HTML path.
     for attachment_url in attachments:
-        suffix = Path(attachment_url.split("?", 1)[0]).suffix.lower()
-        saved_path = download_attachment(session, attachment_url, doc_info["id"], suffix)
+        suffix = attachment_suffix(attachment_url)
+        try:
+            saved_path = download_attachment(session, attachment_url, doc_info["id"], suffix)
+        except requests.RequestException as exc:
+            print(f"    [!] Attachment download failed: {exc}")
+            continue
         if not saved_path:
             continue
 
         downloaded_files.append(str(saved_path.relative_to(_ROOT)))
-        extracted = extract_text_from_attachment(saved_path)
-        if extracted:
+        try:
+            extracted = extract_text_from_attachment(saved_path)
+        except Exception as exc:
+            print(f"    [!] Attachment extraction failed: {exc}")
+            continue
+        expected = doc_info.get("expected_article_count")
+        from src.crawler.clean_dataset import split_main_and_appendices
+        count = len(article_matches(split_main_and_appendices(extracted)[0]))
+        if count and matches_document_number(extracted, doc_info["doc_number"]) and (expected is None or count == expected):
             raw_text = extracted
             source_format = suffix.lstrip(".") or "attachment"
             break
 
     if not raw_text:
         raw_html = extract_best_html_content(soup, doc_info["url"])
+        from src.crawler.clean_dataset import clean_html, split_main_and_appendices
+        extracted = clean_html(raw_html)
+        count = len(article_matches(split_main_and_appendices(extracted)[0]))
+        expected = doc_info.get("expected_article_count")
+        if not count or not matches_document_number(extracted, doc_info["doc_number"]) or (expected is not None and count != expected):
+            (ATTACHMENT_DIR / f"{doc_info['id']}.source.html").write_text(response.text, encoding="utf-8")
+            print(f"[!] Incomplete legal content for {doc_info['id']}: {count} articles; HTML/OCR or source review required")
+            return False
 
     data = {
         "doc_id": doc_info["id"],
@@ -106,8 +136,7 @@ def crawl_official_document(doc_info: dict, session: requests.Session) -> bool:
 
 
 def crawl_all(documents: list[dict] | None = None) -> None:
-    session = requests.Session()
-    session.headers.update(HEADERS)
+    session = create_session(HEADERS)
 
     docs = documents or OFFICIAL_DOCUMENTS
     for idx, doc in enumerate(docs, 1):
@@ -126,7 +155,15 @@ def source_provider(url: str) -> str:
         return "congbao"
     if "vbpl.vn" in url:
         return "vbpl"
+    if "vanban.chinhphu.vn" in url:
+        return "chinhphu"
     return "unknown"
+
+
+def matches_document_number(text: str, doc_number: str) -> bool:
+    compact = re.sub(r"\s+", "", text[:6000]).casefold()
+    number = re.sub(r"\s+", "", doc_number).casefold()
+    return f"số:{number}" in compact
 
 
 def extract_best_html_content(soup: BeautifulSoup, url: str) -> str:
@@ -162,20 +199,32 @@ def find_attachment_links(soup: BeautifulSoup, base_url: str) -> list[str]:
         label = link.get_text(" ", strip=True)
         target = urljoin(base_url, href)
         haystack = f"{href} {label}".lower()
-        if any(ext in haystack for ext in [".docx", ".pdf", ".doc"]):
+        if any(ext in haystack for ext in [".docx", ".pdf", ".doc"]) or attachment_suffix(target) in {".docx", ".pdf", ".doc"}:
             candidates.append(target)
 
     def rank(url: str) -> int:
-        clean = url.lower().split("?", 1)[0]
-        if clean.endswith(".docx"):
+        suffix = attachment_suffix(url)
+        if suffix == ".docx":
             return 0
-        if clean.endswith(".pdf"):
+        if suffix == ".pdf":
             return 1
-        if clean.endswith(".doc"):
+        if suffix == ".doc":
             return 2
         return 3
 
     return sorted(dict.fromkeys(candidates), key=rank)
+
+
+def attachment_suffix(url: str) -> str:
+    parsed = urlparse(url)
+    suffix = Path(parsed.path).suffix.lower()
+    if suffix in {".docx", ".pdf", ".doc"}:
+        return suffix
+    fmt = parse_qs(parsed.query).get("format", [""])[0].lower()
+    filename = parse_qs(parsed.query).get("file_name", [""])[0]
+    if Path(filename).suffix.lower() in {".docx", ".pdf", ".doc"}:
+        return Path(filename).suffix.lower()
+    return f".{fmt}" if fmt in {"docx", "pdf", "doc"} else ""
 
 
 def download_attachment(

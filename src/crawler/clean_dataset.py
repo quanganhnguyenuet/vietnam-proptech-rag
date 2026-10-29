@@ -1,5 +1,7 @@
 import json
 import re
+import unicodedata
+from src.legal_structure import article_matches, is_inside_quote
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -16,12 +18,15 @@ UNVERIFIED_METADATA_FIELDS = {
 }
 
 APPENDIX_START_RE = re.compile(
-    r"(?im)^\s*(?:#{1,6}\s*)?(?:PHỤ\s+LỤC|PHU\s+LUC|MẪU\s+SỐ|Mẫu\s+số|DANH\s+MỤC\s+MẪU|"
-    r"DANH\s+MỤC\s+BIỂU|BIỂU\s+MẪU)\b"
+    r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:"
+    r"(?:PHỤ[ \t]+LỤC|PHU[ \t]+LUC)(?:[ \t]+(?:[IVXLCDM]+|\d+))?[ \t]*(?:[:.][^\n]*)?"
+    r"|MẪU[ \t]+SỐ[ \t]*[\w./-]+[ \t]*"
+    r"|DANH[ \t]+MỤC[ \t]+(?:MẪU|BIỂU)[^\n]*|BIỂU[ \t]+MẪU[^\n]*)$"
 )
 
 
 def _normalize(text: str) -> str:
+    text = unicodedata.normalize("NFC", text)
     text = re.sub(r"\r\n\s*", " ", text)
     text = re.sub(r"\n\s*", " ", text)
     text = text.replace("\xa0", " ")
@@ -40,19 +45,29 @@ def clean_html(raw_html: str) -> str:
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(raw_html, "lxml")
+    for tag in soup(["script", "style", "nav", "noscript"]):
+        tag.decompose()
+    for br in soup.find_all("br"):
+        br.replace_with("\u2028")
 
     paragraphs = []
     for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "li"]):
-        text = tag.get_text(separator=" ")
-        text = _normalize(text)
-        if text:
-            paragraphs.append(text)
+        if tag.find_parent(["p", "h1", "h2", "h3", "h4", "li"]):
+            continue
+        # HTML source indentation is not a legal paragraph break; only <br> is.
+        for line in tag.get_text(separator="").split("\u2028"):
+            text = _normalize(line)
+            if text:
+                paragraphs.append(text)
+    if not paragraphs:
+        paragraphs = [_normalize(line) for line in soup.get_text("\n").splitlines() if line.strip()]
 
     text = "\n".join(paragraphs)
     return normalize_legal_headings(text)
 
 
 def normalize_legal_headings(text: str) -> str:
+    text = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n")).replace("\xa0", " ").replace("\u200b", "")
     text = re.sub(
         r"(?m)^\s*(?:[·oº\-\s]*)?(Chương\s+[0-9IVXLCDM]+.*)$",
         r"\n# \1\n",
@@ -76,9 +91,16 @@ def normalize_legal_headings(text: str) -> str:
     return text.strip()
 
 
+def clean_extracted_text(text: str, source_format: str = "") -> str:
+    if source_format == "pdf":
+        # Gazette running headers are page furniture, not legal provisions.
+        text = re.sub(r"(?im)^[ \t]*(?:\d+[ \t]+)?CÔNG[ \t]+BÁO/Số[^\n]*(?:\n|$)", "", text)
+    return normalize_legal_headings(text.strip())
+
+
 def split_main_and_appendices(text: str) -> tuple[str, list[dict]]:
     """Split enforceable text from appendices/forms."""
-    matches = list(APPENDIX_START_RE.finditer(text))
+    matches = [m for m in APPENDIX_START_RE.finditer(text) if not is_inside_quote(text, m.start())]
     if not matches:
         return text.strip(), []
 
@@ -110,15 +132,14 @@ def clean_file(input_path: Path, output_path: Path):
     raw_text = data.get("raw_text", "")
     raw_html = data.get("raw_html", "")
     if raw_text:
-        clean_text = normalize_legal_headings(raw_text.strip())
+        clean_text = clean_extracted_text(raw_text, data.get("source_format", ""))
     elif raw_html:
         clean_text = clean_html(raw_html)
     else:
-        print("  [!] Missing raw_text/raw_html")
-        return
+        raise ValueError(f"{input_path.name}: missing raw_text/raw_html")
 
     main_text, appendices = split_main_and_appendices(clean_text)
-    num_articles = len(re.findall(r"(?m)^##\s+Điều\s+\d+[a-zA-Z]?\.", main_text))
+    num_articles = len(article_matches(main_text))
     print(
         f"  -> {len(clean_text):,} chars | main articles={num_articles} | "
         f"main={len(main_text):,} | appendices={len(appendices)}"

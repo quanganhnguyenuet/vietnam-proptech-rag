@@ -1,5 +1,7 @@
 # Tóm Tắt Thay Đổi Dataset Pipeline
 
+> Cập nhật 29/10/2026: hướng dẫn chạy và cấu hình hiện tại ở [README](../readme.md), [crawler guide](crawler_guide.md) và [source registry](../config/legal_sources.json). Phần thống kê 5 văn bản bên dưới là mốc dữ liệu trước khi mở rộng corpus. Pipeline nay hỗ trợ OpenAI/BGE với collection riêng, hybrid BM25 khi không có learned sparse, truy xuất qua CLI/API, nhận diện điều sửa đổi trong dấu ngoặc kép và kiểm tra độ bao phủ đầu ra.
+
 ## Mục Tiêu
 
 Chuẩn hóa pipeline chuẩn bị dataset cho bot RAG pháp lý bất động sản theo hướng nghiêm túc hơn:
@@ -16,7 +18,7 @@ Chuẩn hóa pipeline chuẩn bị dataset cho bot RAG pháp lý bất động s
 
 Đã thêm `src/crawler/official_crawler.py`.
 
-Hiện pipeline ưu tiên dùng URL từ `tvpl_crawler.SEED_DOCUMENTS` vì các URL `vbpl.vn` thử trước đó đang trả trang rỗng. Crawler mới vẫn giữ khả năng tải attachment `.docx`, `.pdf`, `.doc` nếu trang nguồn có cung cấp.
+Pipeline đọc `config/legal_sources.json`, thử URL chính và các `fallback_urls`. Nguồn gồm TVPL, Cổng văn bản Chính phủ, Công báo và CSDL VBPL; attachment DOCX/PDF phải có nội dung trích xuất được. Binary DOC chỉ tải được, chưa trích xuất.
 
 Thứ tự ưu tiên nguồn nội dung:
 

@@ -1,0 +1,19 @@
+# Use the same file for ingestion and retrieval. Changing model/dimensions requires a new collection.
+model:
+  provider: openai
+  name: text-embedding-3-small
+embedding:
+  use_dense: true
+  use_sparse: false
+  use_colbert: false
+  dimensions: 1536
+  max_length: 8192
+  batch_size: 32
+  normalize: true
+  timeout: 60
+  max_retries: 3
+vector_store:
+  provider: chromadb
+  persist_directory: data/vectordb_openai
+  collection_name: vn_legal_openai_small_1536
+  distance_metric: cosine

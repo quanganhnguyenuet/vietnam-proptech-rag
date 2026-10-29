@@ -1,75 +1,34 @@
-# Vietnam PropTech RAG — VBPL Crawler
+# Thu thập và chuẩn bị văn bản luật
 
-## 📦 Cài đặt
+Danh mục nguồn duy nhất: [config/legal_sources.json](../config/legal_sources.json). Xem [README](../readme.md) để cài thư viện và chọn embedding.
 
-```bash
-pip install requests beautifulsoup4 lxml jsonlines tqdm python-dotenv
+```powershell
+# Tất cả nguồn → clean → legal units → chunks → quality gate
+.\.venv\Scripts\python main.py --prepare-only
+
+# Chỉ crawl một văn bản (có thể lặp --doc-id)
+.\.venv\Scripts\python -m src.pipeline_prepare --crawl-only --doc-id 95_2024_ND_CP
+
+# Sau khi đã có raw JSON, xử lý lại offline
+.\.venv\Scripts\python main.py --skip-crawl --prepare-only
 ```
 
-## 🚀 Chạy crawler
+Mỗi nguồn cần `id` an toàn cho tên file, `title`, `doc_number`, `doc_type`, `url` HTTPS. `fallback_urls` được thử theo thứ tự nếu nguồn chính lỗi, là PDF scan hoặc thiếu số điều. `expected_article_count` chỉ đếm điều trong phần chính, loại phụ lục và điều được trích dẫn trong dấu ngoặc kép. `aliases` bổ sung tên gọi cho bộ xử lý câu hỏi. Thêm nguồn rồi khởi động lại API để nạp lại danh mục.
 
-### Option 1: Pipeline đầy đủ (khuyến nghị)
-```bash
-python run_pipeline.py
-```
+Nguồn chính thức ưu tiên DOCX, sau đó PDF có lớp text, rồi HTML. URL tải dạng `?format=pdf` và CDN dạng `?file_name=...docx` đều được nhận diện. Binary `.doc` chưa hỗ trợ trích xuất; dùng PDF có text hoặc HTML tương ứng. TVPL chỉ lấy nội dung văn bản, không tải file có thể thuộc mục văn bản liên quan. Crawler kiểm tra số hiệu trong phần đầu nội dung và số điều nếu đã có cấu hình trước khi ghi raw JSON.
 
-### Option 2: Chỉ crawl
-```bash
-python -m src.crawler.vbpl_crawler
-```
+HTTP dùng retry cho lỗi tạm thời và kho CA hệ thống qua `truststore`, giữ xác thực TLS. Không tắt kiểm tra chứng chỉ. Một số nguồn trả HTTP 200 nhưng nội dung không phải toàn văn; crawler từ chối nguồn đó. Nếu không có nguồn hợp lệ, pipeline dừng trước bước clean. HTML dùng chẩn đoán được lưu ở `data/raw/official_attachments/*source.html`; không nhập những file này trực tiếp vào corpus.
 
-### Option 3: Chỉ xử lý (sau khi đã crawl)
-```bash
-python -m src.crawler.data_processor
-```
+Đầu ra:
 
-## 📁 Cấu trúc output
+| Thư mục | Nội dung |
+|---|---|
+| `data/raw/<id>.json` | Metadata nguồn và `raw_html` hoặc `raw_text` |
+| `data/raw/official_attachments/` | File đã tải và HTML chẩn đoán |
+| `data/processed/<id>.json` | `clean_text`, `main_text`, `appendices` |
+| `data/structured/<id>_legal_units.json` | Đơn vị điều/khoản/phụ lục |
+| `data/chunks/<id>_chunks.json` | `chunk_id`, `text`, `embedding_text`, `metadata` |
 
-```
-data/
-├── raw/
-│   └── html_523642.html          # HTML gốc đã tải về
-└── processed/
-    ├── land_law_chunks_YYYYMMDD_HHMMSS.jsonl   # Raw chunks (từ crawler)
-    ├── land_law_chunks_YYYYMMDD_HHMMSS.json    # Cùng data, dễ đọc hơn
-    ├── rag_chunks_YYYYMMDD_HHMMSS.jsonl        # Chunks đã xử lý cho RAG
-    ├── metadata_YYYYMMDD_HHMMSS.json           # Thống kê
-    └── text/
-        └── 523642_31_2024_QH15.txt             # Plain text mỗi văn bản
-```
+Quality gate kiểm tra ID, nội dung, citation, độ dài và độ bao phủ giữa các bước. Việc crawl thành công không đồng nghĩa văn bản vẫn còn nguyên hiệu lực. Các quan hệ sửa đổi và thời điểm áp dụng chưa được tự suy ra. PDF scan cần OCR hoặc nguồn dự phòng đã kiểm tra; không lấy trang thuộc tính làm nội dung luật.
 
-## 📊 Schema của RAG chunk (JSONL)
-
-```json
-{
-  "id": "abc123def456",
-  "text": "Luật Đất đai 2024 | Chương I: Quy định chung | Điều 3. Giải thích từ ngữ\n\nĐiều 3. Giải thích từ ngữ...",
-  "metadata": {
-    "law_id": "523642",
-    "so_hieu": "31/2024/QH15",
-    "ten_van_ban": "Luật Đất đai 2024",
-    "loai_van_ban": "Luat",
-    "ngay_ban_hanh": "2024-01-18",
-    "chuong": "1",
-    "chuong_ten": "QUY ĐỊNH CHUNG",
-    "dieu_so": "3",
-    "dieu_ten": "Điều 3. Giải thích từ ngữ",
-    "source_url": "https://thuvienphapluat.vn/..."
-  }
-}
-```
-
-## 📄 Văn bản được thu thập
-
-| Số hiệu | Tên văn bản |
-|---------|-------------|
-| 31/2024/QH15 | Luật Đất đai 2024 |
-| 101/2024/NĐ-CP | NĐ về điều tra cơ bản đất đai |
-| 102/2024/NĐ-CP | NĐ chi tiết thi hành Luật Đất đai |
-| 103/2024/NĐ-CP | NĐ về tiền sử dụng đất, tiền thuê đất |
-
-## ⚠️ Lưu ý
-
-- Crawler nghỉ **2.5 giây** giữa mỗi request để không làm quá tải server
-- Một số Nghị định có thể chưa có URL chính xác, cần cập nhật trong `TARGET_DOCUMENTS`
-- Nội dung Luật Đất đai 2024 (523642) đã được xác nhận hoạt động tốt
+Khi chỉ crawl một phần, `--skip-crawl` xử lý tất cả raw JSON đang có. Trước ingest có prune, đảm bảo thư mục chunks chứa toàn bộ corpus dự định lưu trong collection. Chương trình không tự xóa raw/processed/chunk của tài liệu đã bỏ khỏi registry; hãy kiểm tra và di chuyển chúng khi thay đổi phạm vi corpus.

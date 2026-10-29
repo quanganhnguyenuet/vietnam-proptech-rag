@@ -1,0 +1,58 @@
+{
+  "checked_at": "2026-10-29",
+  "openai_embedding_probe": "passed",
+  "openai_generation_probe": "passed",
+  "chat_endpoint_http_status": 200,
+  "answer_status": "answered",
+  "generation_model": "gpt-4.1-mini-2025-04-14",
+  "embedding_model": "text-embedding-3-small",
+  "indexed_chunks": 5331,
+  "hybrid_search": "bm25_vector_rrf",
+  "graph_enabled": true,
+  "reranker_enabled_for_live_test": false,
+  "citation_count": 1,
+  "citation_labels_valid": true,
+  "usage": {
+    "input_tokens": 2493,
+    "input_tokens_details": {
+      "cache_write_tokens": 0,
+      "cached_tokens": 0
+    },
+    "output_tokens": 85,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 2578
+  },
+  "tests_passed": 127,
+  "gpu_rerank_verification": {
+    "checked_at": "2026-10-29",
+    "http_status": 200,
+    "answer_status": "answered",
+    "reranker_enabled": true,
+    "graph_enabled": true,
+    "citation_labels_valid": true,
+    "output_file": "data/live_chat_rerank_demo.json",
+    "model_report": "docs/reranker_validation.json"
+  },
+  "conversation_loop": {
+    "live_output_file": "data/live_loop_demo.json",
+    "completed_turns": 2,
+    "followup_query": "Giai thich ngan gon khoan 9 giup toi",
+    "resolved_retrieval_query": "Giải thích ngắn gọn Khoản 9 Điều 138 Luật Đất đai 2024",
+    "both_turns_answered": true,
+    "end_exited_successfully": true,
+    "reranker_enabled": false,
+    "history_max_turns": 6,
+    "history_max_chars": 12000
+  },
+  "clarification_regression": {
+    "live_output_file": "data/live_household_after.json",
+    "single_clarification_question": true,
+    "generic_refusal_removed": true,
+    "limitation": "The live response still asked broadly about purpose; this check validates question count and rendering, not reliable intent disambiguation or legal correctness."
+  },
+  "live_bge_tests_skipped": 3,
+  "output_file": "data/live_chat_api_demo.json",
+  "limitation": "The original live chat test used use_reranker=false. gpu_rerank_verification records the subsequent successful test with reranking enabled. Citation-label validation is not a semantic correctness evaluation."
+}

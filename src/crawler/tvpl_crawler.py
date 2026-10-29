@@ -9,43 +9,9 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parents[1]
 
-SEED_DOCUMENTS = [
-    {
-        "id": "31_2024_QH15",
-        "title": "Luật Đất đai 2024",
-        "doc_number": "31/2024/QH15",
-        "doc_type": "luat",
-        "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Dat-dai-2024-31-2024-QH15-523642.aspx"
-    },
-    {
-        "id": "27_2023_QH15",
-        "title": "Luật Nhà ở 2023",
-        "doc_number": "27/2023/QH15",
-        "doc_type": "luat",
-        "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Nha-o-27-2023-QH15-528669.aspx"
-    },
-    {
-        "id": "29_2023_QH15",
-        "title": "Luật Kinh doanh Bất động sản 2023",
-        "doc_number": "29/2023/QH15",
-        "doc_type": "luat",
-        "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Kinh-doanh-bat-dong-san-29-2023-QH15-530116.aspx"
-    },
-    {
-        "id": "101_2024_ND_CP",
-        "title": "Nghị định 101/2024/NĐ-CP Điều tra cơ bản đất đai",
-        "doc_number": "101/2024/NĐ-CP",
-        "doc_type": "nghi_dinh",
-        "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-101-2024-ND-CP-dang-ky-cap-giay-chung-nhan-quyen-su-dung-dat-tai-san-gan-lien-dat-613131.aspx"
-    },
-    {
-        "id": "102_2024_ND_CP",
-        "title": "Nghị định 102/2024/NĐ-CP Hướng dẫn Luật Đất đai",
-        "doc_number": "102/2024/NĐ-CP",
-        "doc_type": "nghi_dinh",
-        "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-102-2024-ND-CP-huong-dan-Luat-Dat-dai-603982.aspx"
-    }
-]
+from src.crawler.sources import load_sources
+
+SEED_DOCUMENTS = load_sources()
 
 RAW_DATA_DIR = _ROOT / "data" / "raw"
 

@@ -18,6 +18,11 @@ data/structured/*
 !data/processed/.gitkeep
 chroma_db/
 qdrant_db/
+data/vectordb*/
+data/graph/
+data/models/
+data/live_*.json
+.pytest_cache/
 
 # IDE & OS
 .vscode/

@@ -4,6 +4,8 @@ from collections import Counter
 from pathlib import Path
 
 from src.crawler.clean_dataset import split_main_and_appendices
+from src.legal_structure import article_matches
+from src.crawler.sources import load_sources
 
 
 ARTICLE_HEADING_RE = re.compile(
@@ -17,13 +19,7 @@ STRUCTURE_HEADING_RE = re.compile(
 EMBEDDING_MARKDOWN_RE = re.compile(r"(^|\s)#{1,6}\s|[*_`]+")
 CHUNK_TEXT_MAX_CHARS = 2200
 
-EXPECTED_ARTICLE_COUNTS = {
-    "31_2024_QH15": 260,
-    "27_2023_QH15": 198,
-    "29_2023_QH15": 83,
-    "101_2024_ND_CP": 68,
-    "102_2024_ND_CP": 113,
-}
+EXPECTED_ARTICLE_COUNTS = {doc["id"]: doc["expected_article_count"] for doc in load_sources() if doc.get("expected_article_count")}
 
 UNVERIFIED_METADATA_FIELDS = {
     "effective_date",
@@ -68,11 +64,18 @@ def row_paths(directory: Path, pattern: str) -> list[Path]:
 
 def run_quality_gate(processed_dir: Path, structured_dir: Path, chunks_dir: Path) -> None:
     errors: list[str] = []
+    processed_ids = set()
+    expected_articles = {}
 
     for processed_path in sorted(processed_dir.glob("*.json")):
         with processed_path.open(encoding="utf-8-sig") as f:
             doc = json.load(f)
         errors.extend(check_processed_doc(processed_path, doc))
+        processed_ids.add(doc["doc_id"])
+        main_text = doc.get("main_text")
+        if main_text is None:
+            main_text, _ = split_main_and_appendices(doc.get("clean_text", ""))
+        expected_articles[doc["doc_id"]] = {m.group(1).lower() for m in article_matches(main_text)}
 
     all_units = []
     for units_path in row_paths(structured_dir, "*_legal_units"):
@@ -88,6 +91,21 @@ def run_quality_gate(processed_dir: Path, structured_dir: Path, chunks_dir: Path
 
     errors.extend(check_duplicate_key("global unit_id", all_units, "unit_id"))
     errors.extend(check_duplicate_key("global chunk_id", all_chunks, "chunk_id"))
+    if not processed_ids or not all_units or not all_chunks:
+        errors.append("Pipeline outputs must contain processed documents, legal units and chunks")
+    unit_docs = {row.get("doc_id") for row in all_units}
+    chunk_docs = {row.get("metadata", {}).get("doc_id") for row in all_chunks}
+    if unit_docs != processed_ids or chunk_docs != processed_ids:
+        errors.append("Document coverage differs between processed, structured and chunk outputs")
+    unit_ids = {row.get("unit_id") for row in all_units}
+    chunk_unit_ids = {row.get("metadata", {}).get("unit_id") for row in all_chunks}
+    if unit_ids != chunk_unit_ids:
+        errors.append("Legal unit coverage differs from chunk parent coverage")
+    for doc_id, expected in expected_articles.items():
+        for label, rows in (("units", all_units), ("chunks", [row.get("metadata", {}) for row in all_chunks])):
+            actual = {str(row.get("article_no")).lower() for row in rows if row.get("doc_id") == doc_id and row.get("section_type") == "main"}
+            if actual != expected:
+                errors.append(f"{doc_id}: article coverage differs in {label}")
 
     if errors:
         print("\n[QUALITY GATE] FAILED")
@@ -109,7 +127,10 @@ def check_processed_doc(path: Path, doc: dict) -> list[str]:
     if not main_text or not main_text.strip():
         return [f"{path.name}: empty main_text"]
 
-    article_count = len(ARTICLE_HEADING_RE.findall(main_text))
+    labels = [m.group(1).lower() for m in article_matches(main_text)]
+    article_count = len(labels)
+    if len(set(labels)) != len(labels):
+        errors.append(f"{path.name}: duplicate article headings")
     expected = doc.get("expected_article_count") or EXPECTED_ARTICLE_COUNTS.get(doc.get("doc_id"))
     if expected is not None and article_count != int(expected):
         errors.append(
@@ -155,7 +176,7 @@ def check_units(path: Path, rows: list[dict]) -> list[str]:
         if not text.strip():
             errors.append(f"{path.name}: {unit_id} has empty text")
 
-        if row.get("section_type") == "main" and ARTICLE_HEADING_RE.search(text):
+        if row.get("section_type") == "main" and article_matches(text):
             errors.append(f"{path.name}: {unit_id} contains another article heading")
         if row.get("section_type") == "main" and STRUCTURE_HEADING_RE.search(text):
             errors.append(f"{path.name}: {unit_id} contains trailing structure heading")
@@ -183,7 +204,7 @@ def check_chunks(path: Path, rows: list[dict]) -> list[str]:
         for field in UNVERIFIED_METADATA_FIELDS:
             if field in metadata:
                 errors.append(f"{path.name}: {chunk_id} metadata contains unverified field {field}")
-        if metadata.get("section_type") == "main" and ARTICLE_HEADING_RE.search(text):
+        if metadata.get("section_type") == "main" and article_matches(text):
             errors.append(f"{path.name}: {chunk_id} contains another article heading")
         if metadata.get("section_type") == "main" and STRUCTURE_HEADING_RE.search(text):
             errors.append(f"{path.name}: {chunk_id} contains trailing structure heading")

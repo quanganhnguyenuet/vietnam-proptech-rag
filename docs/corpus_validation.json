@@ -1,0 +1,134 @@
+{
+  "checked_at": "2026-10-29",
+  "quality_gate": "passed",
+  "tests_passed": 78,
+  "live_bge_tests_skipped": 3,
+  "openai_live_tested": false,
+  "document_count": 13,
+  "legal_unit_count": 4534,
+  "chunk_count": 5331,
+  "max_chunk_chars": 2199,
+  "documents": [
+    {
+      "doc_id": "101_2024_ND_CP",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-101-2024-ND-CP-dang-ky-cap-giay-chung-nhan-quyen-su-dung-dat-tai-san-gan-lien-dat-613131.aspx",
+      "source_format": "html",
+      "expected_articles": 68,
+      "parsed_articles": 68,
+      "appendix_sections": 48
+    },
+    {
+      "doc_id": "102_2024_ND_CP",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-102-2024-ND-CP-huong-dan-Luat-Dat-dai-603982.aspx",
+      "source_format": "html",
+      "expected_articles": 113,
+      "parsed_articles": 113,
+      "appendix_sections": 32
+    },
+    {
+      "doc_id": "103_2024_ND_CP",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-103-2024-ND-CP-tien-su-dung-dat-tien-thue-dat-550020.aspx",
+      "source_format": "html",
+      "expected_articles": 54,
+      "parsed_articles": 54,
+      "appendix_sections": 15
+    },
+    {
+      "doc_id": "151_2025_ND_CP",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-151-2025-ND-CP-phan-dinh-tham-quyen-chinh-quyen-dia-phuong-02-cap-linh-vuc-dat-dai-660608.aspx",
+      "source_format": "html",
+      "expected_articles": 23,
+      "parsed_articles": 23,
+      "appendix_sections": 62
+    },
+    {
+      "doc_id": "226_2025_ND_CP",
+      "source_url": "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-226-2025-nd-cp-45839.htm",
+      "source_format": "pdf",
+      "expected_articles": 10,
+      "parsed_articles": 10,
+      "appendix_sections": 0
+    },
+    {
+      "doc_id": "27_2023_QH15",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Nha-o-27-2023-QH15-528669.aspx",
+      "source_format": "html",
+      "expected_articles": 198,
+      "parsed_articles": 198,
+      "appendix_sections": 0
+    },
+    {
+      "doc_id": "29_2023_QH15",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Kinh-doanh-bat-dong-san-29-2023-QH15-530116.aspx",
+      "source_format": "html",
+      "expected_articles": 83,
+      "parsed_articles": 83,
+      "appendix_sections": 0
+    },
+    {
+      "doc_id": "31_2024_QH15",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Dat-dai-2024-31-2024-QH15-523642.aspx",
+      "source_format": "html",
+      "expected_articles": 260,
+      "parsed_articles": 260,
+      "appendix_sections": 0
+    },
+    {
+      "doc_id": "43_2024_QH15",
+      "source_url": "https://vanban.chinhphu.vn/?docid=211201&pageid=27160",
+      "source_format": "pdf",
+      "expected_articles": 5,
+      "parsed_articles": 5,
+      "appendix_sections": 0
+    },
+    {
+      "doc_id": "54_2026_ND_CP",
+      "source_url": "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-54-2026-nd-cp-468940.htm",
+      "source_format": "docx",
+      "expected_articles": 43,
+      "parsed_articles": 43,
+      "appendix_sections": 0
+    },
+    {
+      "doc_id": "71_2024_ND_CP",
+      "source_url": "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-71-2024-nd-cp-42155/50667.htm",
+      "source_format": "pdf",
+      "expected_articles": 40,
+      "parsed_articles": 40,
+      "appendix_sections": 9
+    },
+    {
+      "doc_id": "95_2024_ND_CP",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bo-may-hanh-chinh/Nghi-dinh-95-2024-ND-CP-huong-dan-Luat-Nha-o-618897.aspx",
+      "source_format": "html",
+      "expected_articles": 95,
+      "parsed_articles": 95,
+      "appendix_sections": 29
+    },
+    {
+      "doc_id": "96_2024_ND_CP",
+      "source_url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-96-2024-ND-CP-huong-dan-Luat-Kinh-doanh-bat-dong-san-600395.aspx",
+      "source_format": "html",
+      "expected_articles": 40,
+      "parsed_articles": 40,
+      "appendix_sections": 34
+    }
+  ],
+  "parse_warnings": [
+    {
+      "unit_id": "103_2024_ND_CP__main__article_38",
+      "citation": "Nghị định 103/2024/NĐ-CP quy định về tiền sử dụng đất, tiền thuê đất, Điều 38",
+      "warning": "non_sequential_clauses"
+    },
+    {
+      "unit_id": "226_2025_ND_CP__main__article_1",
+      "citation": "Nghị định 226/2025/NĐ-CP sửa đổi các nghị định quy định chi tiết thi hành Luật Đất đai, Điều 1",
+      "warning": "unbalanced_quotes"
+    },
+    {
+      "unit_id": "226_2025_ND_CP__main__article_7",
+      "citation": "Nghị định 226/2025/NĐ-CP sửa đổi các nghị định quy định chi tiết thi hành Luật Đất đai, Điều 7",
+      "warning": "unbalanced_quotes"
+    }
+  ]
+}

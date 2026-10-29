@@ -1,0 +1,26 @@
+dense_candidates: 50
+bm25_candidates: 50
+candidate_pool: 80
+dense_weight: 1.0
+bm25_weight: 1.0
+rrf_k: 60
+max_context_chars: 24000
+reranker:
+  enabled: true
+  model_name: BAAI/bge-reranker-v2-m3
+  device: null
+  dtype: auto
+  cache_dir: data/models
+  batch_size: 1
+  max_length: 1024
+  window_overlap: 64
+  local_files_only: true
+graph:
+  enabled: true
+  path: data/graph/legal_graph.json
+  seed_k: 8
+  max_hops: 2
+  max_articles: 20
+  max_chunks: 40
+  chunks_per_article: 2
+  context_k: 8

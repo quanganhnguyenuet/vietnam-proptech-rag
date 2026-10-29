@@ -1,0 +1,144 @@
+[
+  {
+    "id": "31_2024_QH15",
+    "title": "Luật Đất đai 2024",
+    "doc_number": "31/2024/QH15",
+    "doc_type": "luat",
+    "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Dat-dai-2024-31-2024-QH15-523642.aspx",
+    "expected_article_count": 260
+  },
+  {
+    "id": "27_2023_QH15",
+    "title": "Luật Nhà ở 2023",
+    "doc_number": "27/2023/QH15",
+    "doc_type": "luat",
+    "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Nha-o-27-2023-QH15-528669.aspx",
+    "expected_article_count": 198
+  },
+  {
+    "id": "29_2023_QH15",
+    "title": "Luật Kinh doanh Bất động sản 2023",
+    "doc_number": "29/2023/QH15",
+    "doc_type": "luat",
+    "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Luat-Kinh-doanh-bat-dong-san-29-2023-QH15-530116.aspx",
+    "expected_article_count": 83
+  },
+  {
+    "id": "101_2024_ND_CP",
+    "title": "Nghị định 101/2024/NĐ-CP về đăng ký, cấp Giấy chứng nhận và hệ thống thông tin đất đai",
+    "doc_number": "101/2024/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-101-2024-ND-CP-dang-ky-cap-giay-chung-nhan-quyen-su-dung-dat-tai-san-gan-lien-dat-613131.aspx",
+    "expected_article_count": 68
+  },
+  {
+    "id": "102_2024_ND_CP",
+    "title": "Nghị định 102/2024/NĐ-CP Hướng dẫn Luật Đất đai",
+    "doc_number": "102/2024/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-102-2024-ND-CP-huong-dan-Luat-Dat-dai-603982.aspx",
+    "expected_article_count": 113
+  },
+  {
+    "id": "71_2024_ND_CP",
+    "title": "Nghị định 71/2024/NĐ-CP quy định về giá đất",
+    "doc_number": "71/2024/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=210523&pageid=27160",
+    "fallback_urls": [
+      "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-71-2024-nd-cp-42155/50667.htm",
+      "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-71-2024-ND-CP-quy-dinh-gia-dat-599145.aspx",
+      "https://vbpl.vn/gialai/Pages/vbpq-toanvan.aspx?ItemID=168381"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 40
+  },
+  {
+    "id": "95_2024_ND_CP",
+    "title": "Nghị định 95/2024/NĐ-CP quy định chi tiết một số điều của Luật Nhà ở",
+    "doc_number": "95/2024/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=210761&pageid=27160",
+    "fallback_urls": [
+      "https://vbpl.vn/hanoi/Pages/vbpq-toanvan.aspx?ItemID=169709",
+      "https://thuvienphapluat.vn/van-ban/Bo-may-hanh-chinh/Nghi-dinh-95-2024-ND-CP-huong-dan-Luat-Nha-o-618897.aspx"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 95
+  },
+  {
+    "id": "96_2024_ND_CP",
+    "title": "Nghị định 96/2024/NĐ-CP quy định chi tiết một số điều của Luật Kinh doanh bất động sản",
+    "doc_number": "96/2024/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=210798&pageid=27160",
+    "fallback_urls": [
+      "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-96-2024-ND-CP-huong-dan-Luat-Kinh-doanh-bat-dong-san-600395.aspx"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 40
+  },
+  {
+    "id": "103_2024_ND_CP",
+    "title": "Nghị định 103/2024/NĐ-CP quy định về tiền sử dụng đất, tiền thuê đất",
+    "doc_number": "103/2024/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=210797&pageid=27160",
+    "fallback_urls": [
+      "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-103-2024-ND-CP-tien-su-dung-dat-tien-thue-dat-550020.aspx",
+      "https://vbpl.vn/bothongtin/Pages/vbpq-toanvan.aspx?ItemID=172729"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 54
+  },
+  {
+    "id": "43_2024_QH15",
+    "title": "Luật 43/2024/QH15 sửa đổi Luật Đất đai, Luật Nhà ở, Luật Kinh doanh bất động sản và Luật Các tổ chức tín dụng",
+    "doc_number": "43/2024/QH15",
+    "doc_type": "luat",
+    "url": "https://vanban.chinhphu.vn/?docid=211201&pageid=27160",
+    "verified_at": "2026-10-29",
+    "expected_article_count": 5
+  },
+  {
+    "id": "151_2025_ND_CP",
+    "title": "Nghị định 151/2025/NĐ-CP về phân định thẩm quyền chính quyền địa phương hai cấp trong lĩnh vực đất đai",
+    "doc_number": "151/2025/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=213927&pageid=27160",
+    "fallback_urls": [
+      "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-151-2025-ND-CP-phan-dinh-tham-quyen-chinh-quyen-dia-phuong-02-cap-linh-vuc-dat-dai-660608.aspx"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 23
+  },
+  {
+    "id": "226_2025_ND_CP",
+    "title": "Nghị định 226/2025/NĐ-CP sửa đổi các nghị định quy định chi tiết thi hành Luật Đất đai",
+    "doc_number": "226/2025/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=214955&pageid=27160",
+    "fallback_urls": [
+      "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-226-2025-nd-cp-45839.htm",
+      "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-226-2025-ND-CP-sua-doi-cac-Nghi-dinh-huong-dan-Luat-Dat-dai-664033.aspx",
+      "https://m.thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-226-2025-ND-CP-sua-doi-cac-Nghi-dinh-huong-dan-Luat-Dat-dai-664033.aspx",
+      "https://vbpl.moj.gov.vn/botainguyen/Pages/vbpq-toanvan.aspx?ItemID=181906"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 10
+  },
+  {
+    "id": "54_2026_ND_CP",
+    "title": "Nghị định 54/2026/NĐ-CP sửa đổi các nghị định trong lĩnh vực nhà ở, kinh doanh bất động sản",
+    "doc_number": "54/2026/NĐ-CP",
+    "doc_type": "nghi_dinh",
+    "url": "https://vanban.chinhphu.vn/?docid=216924&pageid=27160",
+    "fallback_urls": [
+      "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-54-2026-nd-cp-468940.htm",
+      "https://thuvienphapluat.vn/van-ban/Bat-dong-san/Nghi-dinh-54-2026-ND-CP-sua-doi-cac-Nghi-dinh-trong-linh-vuc-nha-o-kinh-doanh-bat-dong-san-672540.aspx",
+      "https://vbpl.vn/TW/Pages/vbpq-toanvan.aspx?ItemID=186852"
+    ],
+    "verified_at": "2026-10-29",
+    "expected_article_count": 43
+  }
+]

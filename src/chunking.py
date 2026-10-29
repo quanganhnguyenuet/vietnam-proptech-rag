@@ -3,12 +3,9 @@ import re
 from pathlib import Path
 
 from src.crawler.clean_dataset import split_main_and_appendices
+from src.legal_structure import ARTICLE_RE, article_matches, is_inside_quote
 
 
-ARTICLE_RE = re.compile(
-    r"(?m)^\s*(?:#{1,6}\s*)?(?:[·oº\-\s]*)?Điều\s+(\d+[a-zA-Z]?)\s*[.:]\s*(.+?)\s*$",
-    re.IGNORECASE,
-)
 CHAPTER_RE = re.compile(
     r"(?m)^\s*(?:#{1,6}\s*)?(?:[·oº\-\s]*)?Chương\s+([0-9IVXLCDM]+)\b.*$",
     re.IGNORECASE,
@@ -17,7 +14,7 @@ STRUCTURE_HEADING_RE = re.compile(
     r"(?m)^\s*#{1,6}\s*(?:Chương|Mục|Tiểu mục)\b.*$",
     re.IGNORECASE,
 )
-CLAUSE_RE = re.compile(r"(?m)^(\d+)\s*\.\s+")
+CLAUSE_RE = re.compile(r"(?m)^[ \t]*(\d+)[ \t]*\.[ \t]+")
 POINT_RE = re.compile(r"(?m)^\s*(?:[-–—]\s*)?([a-zđ])\)\s+", re.IGNORECASE)
 MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s*#{1,6}\s*")
 LIST_MARKER_RE = re.compile(r"(?m)^\s*[-*+]\s+")
@@ -38,11 +35,6 @@ DOC_METADATA_FIELDS = [
 ]
 
 
-def is_inside_quote(text: str, pos: int) -> bool:
-    prefix = text[:pos]
-    return prefix.count("“") > prefix.count("”")
-
-
 def current_chapter(text_before_article: str):
     matches = list(CHAPTER_RE.finditer(text_before_article))
     if not matches:
@@ -51,7 +43,7 @@ def current_chapter(text_before_article: str):
 
 
 def strip_trailing_structure_headings(text: str) -> str:
-    match = STRUCTURE_HEADING_RE.search(text)
+    match = next((m for m in STRUCTURE_HEADING_RE.finditer(text) if not is_inside_quote(text, m.start())), None)
     if not match:
         return text.strip()
     return text[: match.start()].strip()
@@ -79,7 +71,7 @@ def make_unit_id(
 
 
 def parse_articles(doc: dict, text: str) -> list[dict]:
-    matches = list(ARTICLE_RE.finditer(text))
+    matches = article_matches(text)
     articles = []
 
     for idx, match in enumerate(matches):
@@ -88,6 +80,9 @@ def parse_articles(doc: dict, text: str) -> list[dict]:
         article_no = match.group(1)
         article_title = match.group(2).strip()
         body = strip_trailing_structure_headings(text[match.end():end])
+        if not body.strip():
+            # Some sources put the entire provision on the heading line.
+            body = article_title
 
         articles.append(
             {
@@ -113,11 +108,16 @@ def parse_articles(doc: dict, text: str) -> list[dict]:
 
 def parse_clauses(article: dict) -> list[dict]:
     body = article["text"]
+    if body.count("“") != body.count("”") or body.count('"') % 2:
+        return [{**article, "level": "article", "parse_warning": "unbalanced_quotes"}]
     matches = [m for m in CLAUSE_RE.finditer(body) if not is_inside_quote(body, m.start())]
 
     if not matches:
         return [{**article, "level": "article"}]
 
+    clause_numbers = [int(match.group(1)) for match in matches]
+    if clause_numbers != list(range(1, len(matches) + 1)):
+        return [{**article, "level": "article", "parse_warning": "non_sequential_clauses"}]
     first_clause_no = int(matches[0].group(1))
     intro = body[: matches[0].start()].strip()
     if first_clause_no != 1 and intro:
@@ -196,6 +196,8 @@ def build_legal_units(doc: dict) -> list[dict]:
 
 
 def split_long_text(text: str, max_chars: int = MAX_CHARS) -> list[str]:
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
     paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
     chunks = []
     current = []
@@ -225,6 +227,8 @@ def split_long_text(text: str, max_chars: int = MAX_CHARS) -> list[str]:
 
 
 def split_long_paragraph(paragraph: str, max_chars: int = MAX_CHARS) -> list[str]:
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
     pieces = [piece.strip() for piece in SENTENCE_SPLIT_RE.split(paragraph) if piece.strip()]
     if not pieces:
         return []
@@ -239,7 +243,14 @@ def split_long_paragraph(paragraph: str, max_chars: int = MAX_CHARS) -> list[str
                 chunks.append(" ".join(current))
                 current = []
                 current_len = 0
-            chunks.extend(piece[i : i + max_chars].strip() for i in range(0, len(piece), max_chars))
+            while len(piece) > max_chars:
+                boundary = piece.rfind(" ", 0, max_chars + 1)
+                if boundary <= 0:
+                    boundary = max_chars
+                chunks.append(piece[:boundary].strip())
+                piece = piece[boundary:].strip()
+            if piece:
+                chunks.append(piece)
             continue
 
         if current and current_len + len(piece) + 1 > max_chars:
@@ -299,8 +310,10 @@ def format_point_range(labels: list[str]) -> str:
 
 
 def split_by_points(text: str, max_chars: int = MAX_CHARS) -> list[dict]:
-    matches = list(POINT_RE.finditer(text))
+    matches = [m for m in POINT_RE.finditer(text) if not is_inside_quote(text, m.start())]
     if len(matches) < POINT_SPLIT_MIN_POINTS:
+        return []
+    if len({m.group(1).lower() for m in matches}) != len(matches):
         return []
 
     intro = text[: matches[0].start()].strip()
@@ -342,6 +355,7 @@ def chunk_unit(unit: dict) -> list[dict]:
     point_count = len(POINT_RE.findall(text))
     should_split_points = (
         unit.get("section_type") == "main"
+        and not unit.get("parse_warning")
         and len(text) > POINT_SPLIT_MIN_CHARS
         and point_count >= POINT_SPLIT_MIN_POINTS
     )
@@ -386,6 +400,10 @@ def chunk_unit(unit: dict) -> list[dict]:
     for idx, part in enumerate(parts, 1):
         chunk_id = unit["unit_id"] if len(parts) == 1 else f"{unit['unit_id']}__part_{idx}"
         metadata = {k: v for k, v in unit.items() if k != "text"}
+        metadata["parent_unit_id"] = unit["unit_id"]
+        if len(parts) > 1:
+            metadata["part_index"] = idx
+            metadata["part_count"] = len(parts)
         if len(text.strip()) < SHORT_TEXT_CHARS:
             metadata["context_enrichment"] = "short_text_parent_context"
         elif len(parts) > 1:

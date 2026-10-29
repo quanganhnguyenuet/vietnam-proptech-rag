@@ -381,7 +381,7 @@ class TestChromaVectorStoreMocked(unittest.TestCase):
         self.assertEqual(store._distance_to_score(0.0), 1.0)
         self.assertAlmostEqual(store._distance_to_score(3.0), 0.25)
 
-    def test_hybrid_search_fuses_dense_and_sparse_rankings(self):
+    def test_hybrid_search_fuses_dense_and_bm25_even_with_bge_sparse(self):
         from src.embedding.vector_store import ChromaVectorStore
 
         mock_embedder = MagicMock(spec=BGEM3Embedder)
@@ -393,7 +393,7 @@ class TestChromaVectorStoreMocked(unittest.TestCase):
         mock_collection.count.return_value = 3
         mock_collection.get.return_value = {
             "ids": ["dense_only", "both", "sparse_only"],
-            "documents": ["Dense", "Both", "Sparse"],
+            "documents": ["nhà ở", "đất đai", "đất đai đất đai"],
             "metadatas": [
                 {"doc_id": "d", "_sparse_vector": json.dumps({"indices": [8], "values": [1.0]})},
                 {"doc_id": "d", "_sparse_vector": json.dumps({"indices": [7], "values": [0.8]})},
@@ -413,7 +413,7 @@ class TestChromaVectorStoreMocked(unittest.TestCase):
 
         self.assertEqual(results[0]["chunk_id"], "both")
         self.assertEqual(results[0]["dense_rank"], 1)
-        self.assertEqual(results[0]["sparse_rank"], 2)
+        self.assertEqual(results[0]["bm25_rank"], 2)
         self.assertNotIn("_sparse_vector", results[0]["metadata"])
 
 
@@ -528,7 +528,7 @@ class TestVectorStoreLive(unittest.TestCase):
                 )
                 self.assertEqual(len(hybrid_results), 2)
                 self.assertEqual(hybrid_results[0]["chunk_id"], "test_1")
-                self.assertIsNotNone(hybrid_results[0]["sparse_rank"])
+                self.assertIsNotNone(hybrid_results[0]["bm25_rank"])
             finally:
                 store.close()
 

@@ -12,6 +12,13 @@ class QueryProcessorTests(unittest.TestCase):
     def setUp(self):
         self.processor = QueryProcessor()
 
+    def test_cross_law_articles_keep_their_own_document_and_clause(self):
+        plan = self.processor.process("So sánh khoản 1 Điều 138 Luật Đất đai và khoản 2 Điều 160 Luật Nhà ở")
+        self.assertEqual(plan.metadata_filter, {"$or": [
+            {"$and": [{"doc_id": "31_2024_QH15"}, {"article_no": 138}, {"clause_no": 1}]},
+            {"$and": [{"doc_id": "27_2023_QH15"}, {"article_no": 160}, {"clause_no": 2}]},
+        ]})
+
     def test_exact_legal_reference_builds_hard_filter(self):
         plan = self.processor.process(
             "Khoản 2 Điều 138 Luật Đất đai quy định gì?"

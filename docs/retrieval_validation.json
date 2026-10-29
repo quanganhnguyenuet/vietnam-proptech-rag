@@ -1,0 +1,93 @@
+{
+  "nodes": 6376,
+  "edges": 8980,
+  "chunks": 5331,
+  "relations": {
+    "contains": 6363,
+    "cites": 2534,
+    "amends": 83
+  },
+  "unresolved_references": 452,
+  "unresolved_reasons": {
+    "target_not_in_corpus": 161,
+    "ambiguous_document": 237,
+    "unknown_document": 54
+  },
+  "legal_effect_verified": false,
+  "example_amendment_edges": [
+    {
+      "source": "article:226_2025_ND_CP:1",
+      "target": "article:71_2024_ND_CP:3",
+      "relation": "amends",
+      "evidence": "ăm 2024 của Chính phủ quy định về giá đất 1. Sửa đổi, bổ sung khoản 1 Điều 3 như sau: “1",
+      "source_unit_id": "226_2025_ND_CP__main__article_1",
+      "scope": "amendment_document_context",
+      "target_clause_no": 1,
+      "document_context": "Sửa đổi, bổ sung một số điều của Nghị định số 71/2024/NĐ-CP",
+      "legal_effect_verified": false
+    },
+    {
+      "source": "article:226_2025_ND_CP:1",
+      "target": "article:71_2024_ND_CP:4",
+      "relation": "amends",
+      "evidence": "h thành trong tương lai.”. 2. Sửa đổi, bổ sung một số điểm, khoản của Điều 4 như sau: - a) Sửa đổi, bổ sung điểm a và điểm b khoản 2 như sau: “a) Thông tin đầu vào để định giá đất là giá đất đã hoàn thành chuyển nhượng trên thị trường, giá đất đã trúng đấu giá quyền sử dụng đất sau khi hoàn thàn",
+      "source_unit_id": "226_2025_ND_CP__main__article_1",
+      "scope": "amendment_document_context",
+      "target_clause_no": null,
+      "document_context": "Sửa đổi, bổ sung một số điều của Nghị định số 71/2024/NĐ-CP",
+      "legal_effect_verified": false
+    },
+    {
+      "source": "article:226_2025_ND_CP:1",
+      "target": "article:71_2024_ND_CP:8",
+      "relation": "amends",
+      "evidence": "ề quy hoạch đô thị và nông thôn.”. 5. Sửa đổi, bổ sung điểm h khoản 1 Điều 8 như sau: “h",
+      "source_unit_id": "226_2025_ND_CP__main__article_1",
+      "scope": "amendment_document_context",
+      "target_clause_no": 1,
+      "document_context": "Sửa đổi, bổ sung một số điều của Nghị định số 71/2024/NĐ-CP",
+      "legal_effect_verified": false
+    },
+    {
+      "source": "article:226_2025_ND_CP:1",
+      "target": "article:71_2024_ND_CP:5",
+      "relation": "amends",
+      "evidence": "tỷ lệ phần trăm (%) sau;”. 3. Sửa đổi, bổ sung một số điểm, khoản của Điều 5 như sau: - a) Sửa đổi, bổ sung điểm a khoản 1 như sau: “a) Đối với đất phi nông nghiệp thì khảo sát, thu thập từ việc cho thuê đất, cho thuê mặt bằng trong thời gian 03 năm (được tính từ ngày 01 thán g 01 đến hết ngày 3",
+      "source_unit_id": "226_2025_ND_CP__main__article_1",
+      "scope": "amendment_document_context",
+      "target_clause_no": null,
+      "document_context": "Sửa đổi, bổ sung một số điều của Nghị định số 71/2024/NĐ-CP",
+      "legal_effect_verified": false
+    },
+    {
+      "source": "article:226_2025_ND_CP:1",
+      "target": "article:71_2024_ND_CP:6",
+      "relation": "amends",
+      "evidence": "ố ảnh hưởng đến giá đất.”. 4. Sửa đổi, bổ sung một số điểm, khoản của Điều 6 như sau: - a) Sửa đổi, bổ sung các điểm a, b và d khoản 2 như sau: “a) Tổng doanh thu phát triển của thửa đất, khu đất được xác đị nh trên cơ sở ước tính giá chuyển nhượng, giá thuê đất, giá thuê mặt bằng, gi á kinh doa",
+      "source_unit_id": "226_2025_ND_CP__main__article_1",
+      "scope": "amendment_document_context",
+      "target_clause_no": null,
+      "document_context": "Sửa đổi, bổ sung một số điều của Nghị định số 71/2024/NĐ-CP",
+      "legal_effect_verified": false
+    }
+  ],
+  "tests_passed": 127,
+  "live_embedding_tests_skipped": 3,
+  "reranker_live_tested": true,
+  "reranker_weights_ready": true,
+  "reranker_runtime_policy": "local_files_only",
+  "reranker_validation_report": "docs/reranker_validation.json",
+  "reranker_runtime": {
+    "checked_at": "2026-10-29",
+    "torch": "2.11.0+cu128",
+    "gpu": "NVIDIA GeForce RTX 3050 Laptop GPU",
+    "dtype": "float16",
+    "batch_size": 1,
+    "max_length": 1024,
+    "weights_sha256": "d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286",
+    "snapshot": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+    "local_snapshot_loading": true,
+    "chat_with_rerank_http_status": 200,
+    "chat_with_rerank_artifact": "data/live_chat_rerank_demo.json"
+  }
+}
